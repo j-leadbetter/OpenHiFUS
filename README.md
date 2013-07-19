@@ -22,7 +22,7 @@ demonstrate performance and functionality. Additionally, OpenHiFUS can load
 external drivers in order to function with many types of digital acquisition 
 hardware. Note that using external drivers will also typically require a 
 wrapper module to interface with the generalized form of OpenHiFUS. By following 
-the template provided within the source code it is hoped that the process utilizing 
+the template provided within the source code it is hoped that the process of utilizing 
 external drivers and preparing wrapper modules is a reasonably straight forward process.
 
 INSTALLATION
