@@ -18,7 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 #Title: OpenHiFUS
-#Version: 1.00
+version='1.00'
 #Date: July 23, 2013
 #Python Version 2.7.2
 
@@ -53,12 +53,12 @@ MULTIPROCESS = True
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         """
-        Main window for Daxsonics ultrasound imaging applicaiton 
+        Main window for OpenHiFUS ultrasound imaging applicaiton 
 
         """
         super(MainWindow, self).__init__(parent)
 
-        self.setWindowTitle("Daxsonics HFU v1.05")
+        self.setWindowTitle("OpenHiFUS "+version)
 
         #Set central widget - Main Scan window
         self.mainWindow = MainScanWindow()
@@ -67,8 +67,8 @@ class MainWindow(QMainWindow):
         #Set main toolbar
         mainToolBar = self.addToolBar("Tools")
 
-        #Set Daxsonics MCU - micro control unit - as initial dock widget
-        self.mcuWidget = DaxsonicsMCUWidget()
+        #Set MCU - micro control unit - as initial dock widget
+        self.mcuWidget = MCUWidget()
 
         mcuDockWidget = QDockWidget('MCU Settings', self)
         mcuDockWidget.setObjectName('mcuDockWidget')
@@ -2126,13 +2126,13 @@ def frequencySpectrum(xData,yData,timebase=1.0E+06):
 
 
   
-class DaxsonicsMCUWidget(QWidget):
+class MCUWidget(QWidget):
     def __init__(self, parent=None):
-        super(DaxsonicsMCUWidget, self).__init__(parent)
+        super(MCUWidget, self).__init__(parent)
 
-        self.setWindowTitle("Daxsonics MCU")
+        self.setWindowTitle("MCU")
 
-        self.MCU = DaxsonicsMCU()
+        self.MCU = MCU()
         
         #Port Connection
         self.connectButton     = QPushButton("Connect to:")
@@ -2293,12 +2293,12 @@ class DaxsonicsMCUWidget(QWidget):
 
 
 
-class DaxsonicsMCU(serial.Serial):
+class MCU(serial.Serial):
     """ Class definition for serial communication to Arduino
-        w/ added functionality specific to the Daxsonics MCU 
+        w/ added functionality specific to the MCU 
 
         Notes:
-        1 - daxsonicsMCU is inherited form serial.Serial
+        1 - MCU is inherited form serial.Serial
         2 - Initialization does not open the serial connection 
         3 - Do not directly call the inherited open() method, as
             the Arduino requires reboot time, the connect() method
@@ -2439,13 +2439,13 @@ except:
   
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    splash_pix = QPixmap('DaxsonicsLogo.png')
-    splash = QSplashScreen(splash_pix, Qt.WindowStaysOnTopHint)
-    splash.show()
+    #splash_pix = QPixmap('')
+    #splash = QSplashScreen(splash_pix, Qt.WindowStaysOnTopHint)
+    #splash.show()
     form = MainWindow()
     form.setWindowState(Qt.WindowMaximized)
     form.show()
-    splash.finish(form)
+    #splash.finish(form)
     app.exec_()
 
                     
