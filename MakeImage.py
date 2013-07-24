@@ -7,39 +7,14 @@ from matplotlib import pyplot as plt
 import time
 
 
+from MuxClass import Mux
 
-
-
-# create an OpenCL context
-platform = cl.get_platforms()
-my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
-ctx = cl.Context(devices=my_gpu_devices)
-queue = cl.CommandQueue(ctx)
-
-
-# create the kernel input
-
-#Blank buffers for testing for now
-Angles = np.arange(-35,35)
-Focals = np.array([5,7,9], dtype = np.float32)
-Elems  = np.arange(64)
-
-numBuffers  = (64 / 2) * 2
-RecPerBuff = len(Angles) * len(Focals)
-recordCnt = len(Angles) * len(Focals)
-ChPerRec = 2
-sampleCnt = 320*15
-
-lenBuffers = recordCnt * sampleCnt *ChPerRec
 
 RandBuf = np.array(np.random.randint(0,2**16, (numBuffers, lenBuffers)) , dtype=np.uint16)
 
-# kernel output placeholder
-img = np.empty((sampleCnt/15,len(Angles)),dtype = np.uint16)
-
-img[0,:] = [ 0 for i in img[0,:]]
 
 
+# TODO: Develop OpenCL
 '''
 # create context buffers for a and b arrays
 # for a (input), we need to specify that this buffer should be populated from a
@@ -86,5 +61,5 @@ plt.show()
 
 
 def makepix(data, RecordCnt = 71, SampleCne = 320*5):
-    RecordCnt =
+    RecordCnt = []
     return None
