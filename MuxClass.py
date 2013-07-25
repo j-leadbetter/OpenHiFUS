@@ -6,6 +6,7 @@ Created on Wed Jul 24 12:54:57 2013
 """
 import numpy as np
 from matplotlib import pyplot as plt
+import pylab as pyl
 
 try:
     import pyopencl as cl
@@ -37,7 +38,9 @@ class Mux(object):
         self.nRecords = self.nFocals * self.nAngles
         self.nChannels = 2 # Number of active channels that can aquire Data
         self.nSamplesPerBuffer = self.nSamples * self.nRecords * self.nChannels
-        self.nBuffers = (1 + (self.nElements-1) / self.nChannels ) * 2
+        self.Frames = 2
+        self.ActiveFrame = 0
+        self.nBuffers = (1 + (self.nElements-1) / self.nChannels ) * self.Frames
         # NOTE: 2 is the safty factor, to have 1 buffer to work with while other is beeing written to
         # Increase if having timeout issues
         self.Offset = 500.0e-9 # Delay offset from master trigger to triggers
@@ -46,10 +49,13 @@ class Mux(object):
         self._calcDelays()
 
         # Data buffers
-        self.Data = np.empty((self.nBuffers, self.nSamplesPerBuffer), dtype = np.uint16)
+        self.Data = np.zeros((self.nBuffers, self.nSamplesPerBuffer), dtype = np.uint16)
         self.Imagenx = self.nAngles
-        self.Imageny = 3  *self.Imagenx
-        self.Image = np.empty((self.Imageny, self.Imagenx), dtype = np.uint16)
+        i = 1
+        while (self.nSamples/i >= 2*self.Imagenx) or not int(self.nSamples/float(i))==(self.nSamples/float(i)):
+            i += 1
+        self.Imageny = self.nSamples / i
+        self.Image = np.zeros((self.Imageny, self.Imagenx), dtype = np.uint16)
 
         if UseOpenCL:
             try:
@@ -86,7 +92,7 @@ class Mux(object):
                     tmp = self.Offset + (foc-np.sqrt((foc*np.sin(np.radians(90+ang)))**2+(foc*np.cos(np.radians(90+ang))-(32-ele)*ep)**2))/(c)
                     # print int(Delay/dt)
                     self.Delay[iele*self.nFocals + ifoc*self.nAngles + iang] = tmp
-                    self.DelIdx[ifoc*self.nAngles + iang,iele] = tmp / dt
+                    self.DelIdx[ifoc*self.nAngles + iang,iele] = tmp / dt #TODO Is this times 2? As there is two times the delay?
 
 
 
@@ -104,9 +110,40 @@ class Mux(object):
             plt.plot(self.Delay[ i::self.nRecords ],self.Elements,'.-')
         plt.show()
 
+    def RenderImage(self):
+        scaleFactor = self.nSamples / self.Imageny
+        print scaleFactor
+        # Temp variable Img to manipulate
+        Img = np.zeros([m.Imageny,m.Imagenx], dtype = np.uint16)
+        for yy in range(self.Imageny): # Iterate over all pixels
+            for xx in range(self.Imagenx):
+                print 'Working on pixel', yy, xx
+                for nn in range(self.nElements): # Each pixel takes data from each channel
+                    BufPos = self.ActiveFrame * self.nElements + nn # Buffer number to be used
+                    PixVal = 0
+                    RecPos = xx * self.nSamples + yy * scaleFactor + self.DelIdx[xx, nn] #Delay Index for angle xx, for element nn
+                    for kk in range(scaleFactor): # Each element was oversampled per pixel
+                        if (RecPos + kk) > ( (xx+1) * self.nSamples): # You're on next record;
+                            PixVal += 0
+                        else:
+                            PixVal += self.Data[BufPos, RecPos + kk]
+#                    print PixVal
+                    Img[yy, xx] += PixVal / scaleFactor  # Add contribution of the Element
+        self.Image = Img
 
 
+    def ShowImage(self):
+        plt.figure(2)
+        plt.imshow(self.Image)
+        plt.show()
 
+    def RandBuffer(self):
+        self.Data = np.random.randint(0, 2**12, size = np.shape(self.Data))
+
+    def NextFrame(self):
+        if self.ActiveFrame == self.Frames:
+            self.ActiveFrame = 0
+        self.ActiveFrame += 1
 
 
 # Test codes to make sure it's working
@@ -125,3 +162,6 @@ except:
     raise Exception('MuxCL Initialisation FAILED')
 
 del test, testcl
+
+m = Mux()
+m.RandBuffer()
