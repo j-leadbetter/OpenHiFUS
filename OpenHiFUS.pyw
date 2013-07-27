@@ -18,8 +18,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 #Title: OpenHiFUS
-version='1.00'
-#Date: July 23, 2013
+version='1.01'
+#Date: July 27, 2013
 #Python Version 2.7.2
 
 import os
@@ -220,7 +220,8 @@ class BModeWindow(QWidget):
         plot.add_item(self.currentImage)
         #plot.set_active_item(self.currentImage)
 
-        
+        #Image adjust tools
+        #TODO: Move these to a dock-able toolbox
 
         #Signal Range
         self.BSignalRange = dataObject.getBRange()
@@ -242,6 +243,10 @@ class BModeWindow(QWidget):
         averageText = ["%d Frames" % i for i in self.averageList]
         self.averageComboBox = QComboBox()
         self.averageComboBox.addItems(averageText)
+
+        #Flip Image Left to Right
+        self.flipLRButton = QPushButton('Flip L/R')
+        self.flipLRButton.setCheckable(True)
 
         #Time Gain
         self.gainWidget = TimeGainWidget(dataLength=dataObject.RFRecordLength)
@@ -279,7 +284,6 @@ class BModeWindow(QWidget):
         grid.addWidget(line)
         row += 1
         
-
         grid.addWidget(QLabel("Noise Floor Adjust (dB):"),row,0)
         row += 1
         grid.addWidget(self.BNoiseFloorSlider)
@@ -301,12 +305,12 @@ class BModeWindow(QWidget):
         plotLayout = QGridLayout()
         plotLayout.addWidget(self.plotDialog,0,0)
         plotLayout.addWidget(self.gainWidget,0,1)
+        plotLayout.addWidget(self.flipLRButton,1,1)
         plotLayout.addWidget(self.replayWidget,1,0)
            
         plotVSpacer = QVBoxLayout()
         plotVSpacer.addStretch()
         plotVSpacer.addLayout(plotLayout)
-        #plotVSpacer.addWidget(self.replayWidget)
         plotVSpacer.addStretch()
         plotHSpacer = QHBoxLayout()
         plotHSpacer.addStretch()
@@ -321,7 +325,6 @@ class BModeWindow(QWidget):
         
         self.setLayout(grid)
 
-
         #------------------
         # Signals and slots
         #------------------
@@ -330,7 +333,8 @@ class BModeWindow(QWidget):
         self.connect(self.BSignalRangeSlider, SIGNAL("valueChanged(int)"), self.setBMaxPlotRange)
         self.connect(self.BNoiseFloorSlider, SIGNAL("valueChanged(int)"), self.setBMinPlotRange)
         self.connect(self.averageComboBox, SIGNAL("currentIndexChanged(int)"), self.setBAverage)
-        self.connect(self.gainWidget,  SIGNAL("newTimeGain"), self.dataObject.setTimeGain)
+        self.connect(self.flipLRButton, SIGNAL("clicked()"), self.flipLeftRight)
+        self.connect(self.gainWidget,  SIGNAL("newTimeGain"), self.setTimeGain)
         self.connect(self.saveButton,  SIGNAL("clicked()"), self.exportRFData)
         self.connect(self.dataObject,  SIGNAL("newBData"),  self.replot)
         self.connect(self.dataObject,  SIGNAL("faildata"),  self.stopBScan)
@@ -338,7 +342,6 @@ class BModeWindow(QWidget):
 
     def runBScan(self):
         """ Method calls program loop to acquire B mode images """
-
         if self.MCU is not None:
             self.MCU.setAC()
 
@@ -350,11 +353,9 @@ class BModeWindow(QWidget):
         self.dataObject.setTimeGain(self.gainWidget.gain)
         self.dataObject.collect()
 
-        
 
     def stopBScan(self):
         """ Stop B Mode Image Acquisition """
-
         try:
             self.dataObject.alive = False
         except:
@@ -362,7 +363,6 @@ class BModeWindow(QWidget):
 
         if self.MCU is not None:
             self.MCU.setDC()
-
 
     def setBMaxPlotRange(self, sliderIndex):
         sliderIndex = max(1, sliderIndex)
@@ -388,6 +388,17 @@ class BModeWindow(QWidget):
         #Parse out the number of frames to average from the combo box text
         temp = int(str(self.averageComboBox.currentText()).split()[0])
         self.dataObject.setBAverage(temp)
+
+    def setTimeGain(self, gain):
+        self.dataObject.setTimeGain(gain)
+
+    def flipLeftRight(self):
+        """Flip the image from left to right """
+        flip = self.flipLRButton.isChecked()        
+        plot = self.plotDialog.get_plot()
+        plot.set_axis_direction('bottom', flip)
+        plot.set_active_item(self.currentImage)
+        plot.replot()
         
 
     def replot(self, imageData):
@@ -535,7 +546,7 @@ class ReplayWidget(QWidget):
 
         self.frameSlider = QSlider(Qt.Horizontal)
         self.frameSlider.setMinimum(0)
-        self.frameSlider.setMaximum(self.dataObject.BVideoLength)
+        self.frameSlider.setMaximum(self.dataObject.BVideoLength-1)
         self.frameSlider.setValue(0)
         
 
@@ -1135,6 +1146,7 @@ class HiFUSData(QObject):
         """
         super(HiFUSData, self).__init__(parent)
 
+        self.alive  = False
         self.emitB  = False
         self.emitM  = False
         self.emitRF = False
@@ -1321,6 +1333,13 @@ class HiFUSData(QObject):
             #Tell child OK to resume with new value
             self.parentSocket.send(str(n))
 
+        if self.alive != True:
+            tempData = numpy.copy(self.iqData[0,:])
+            DAQ.IQDemodulateAvg(self.buffers, tempData, self.bufIndex-1, \
+                                average=self.BAverage, gain=self.timeGain)
+            dataToBMode(tempData, self.BData, self.BLength, self.BLines)
+            self.emit(SIGNAL('newBData'), self.BData)
+
     def setTimeGain(self, timeGain):
         self.timeGain[:] = timeGain[:]
         if MULTIPROCESS == True:
@@ -1333,7 +1352,17 @@ class HiFUSData(QObject):
             #Send message to resume
             self.parentSocket.send(True)
 
+        if self.alive != True:
+            tempData = numpy.copy(self.iqData[0,:])
+            DAQ.IQDemodulateAvg(self.buffers, tempData, self.bufIndex-1, \
+                                average=self.BAverage, gain=self.timeGain)
+            dataToBMode(tempData, self.BData, self.BLength, self.BLines)
+            self.emit(SIGNAL('newBData'), self.BData)
+
     def getCurrentBuffer(self):
+        #TODO: this method needs updating / is redundant
+        #As full data set is shared when live scanning
+        #is stopped.
         if MULTIPROCESS == True:
             #if multi processing we need to request buffer data
             self.parentSocket.send('shareBuffer')
@@ -1511,7 +1540,7 @@ class HiFUSData(QObject):
             self.parentSocket.send('idle')
             while(self.parentSocket.poll() == False):
                 QApplication.processEvents()
-            self.parentSocket.recv()
+            self.bufIndex = self.parentSocket.recv()                   
             self.emit(SIGNAL('stopped'))
             #Update all local arrays from shared arrays
             self.buffers[:] = self.shBuffers[:]
@@ -1520,7 +1549,7 @@ class HiFUSData(QObject):
             self.BVideo[:] = self.shBVideo[:]
             #Need to know the BVideoIndex
             self.parentSocket.send('BVideo')
-            self.BVideoIndex = self.parentSocket.recv()
+            self.BVideoIndex = int(self.parentSocket.recv())
             self.parentSocket.send(True)
             self.MData[:] = self.shMData[:]
             self.RFData[:] = self.shRFData[:]
@@ -1741,7 +1770,9 @@ def CollectProcess(childSocket, \
             elif cmd == 'idle':
                 DAQ.StopAcquisition(boardHandle)
                 idle = True
-                childSocket.send('startIdle')
+                #Send back the bufIndex to the parent so that
+                #it knows what the the most recent data is
+                childSocket.send(bufIndex)
 
             else:
                 #If the recieved code is nonsense end the loop
