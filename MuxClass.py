@@ -17,14 +17,14 @@ except:
 
 
 clkernel = """
-__kernel void RenderImg(__global unsigned int* Data, __global unsigned int* Image, __global unsigned int* ScaleFac, __global unsigned int* nElems, __global unsigned int* nSam, __global unsigned int* DelIdx, __global unsigned int* AF)
+__kernel void RenderImg(__global unsigned int* Data, __global unsigned int* Image, __global unsigned int* ScaleFac, __global unsigned int* nElems,  __global unsigned int* nSam, __global unsigned int* DelIdx, __global unsigned int* AF)
 {
     //get our index in the array
     unsigned int yy = get_global_id(0);
     unsigned int xx = get_global_id(1);
-    //printf("x%d ", xx);
-    //printf("y%d ", yy);
-    //printf("%d           ", Data[xx,yy]);
+    printf((__constant char *)"x%d ", xx);
+    printf((__constant char *)"y%d ", yy);
+    //printf((__constant char *)"%d           ", Data[xx,yy]);
     long nn;
     for (nn = 0; nn<64; nn++)
     {
@@ -101,8 +101,8 @@ class Mux(object):
     def __initCL__(self):
         try:
             clv = cl.VERSION_TEXT
-            if not clv =="2012.1":
-                raise Exception('Update your PyOpenCL version to 2012.1!' )
+            if not clv =="2013.1":
+                raise Exception('Update your PyOpenCL version to 2013.1!' )
         except:
             raise Exception('Please install PyOpenCL or set UseOpenCL=False !' )
         del clv
@@ -154,12 +154,10 @@ class Mux(object):
         AF_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.ActiveFrame))
         Program = cl.Program(self.clCtx, clkernel).build()
 #        Event = Program.RenderImg(self.clQueue, (self.Imageny, self.Imagenx), Data_buf, Image_buf, SF_buf, nElements_buf, nSamples_buf, DelIdx_buf, AF_buf)
-        Event = Program.RenderImg(self.clQueue, (1, 1), Data_buf, Image_buf, SF_buf, nElements_buf, nSamples_buf, DelIdx_buf, AF_buf)
+        Event = Program.RenderImg(self.clQueue, (1, 1), None, Data_buf, Image_buf, SF_buf, nElements_buf, nSamples_buf, DelIdx_buf, AF_buf)
         Event.wait()
         Img = np.zeros([m.Imageny,m.Imagenx], dtype = np.uint32)
         cl.enqueue_copy(self.clQueue, Img, Image_buf)
-
-        self.clCtx.release
         return Img
 
     def _RenderImgCPU(self, scaleFactor):
