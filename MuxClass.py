@@ -7,6 +7,7 @@ Created on Wed Jul 24 12:54:57 2013
 import numpy as np
 from matplotlib import pyplot as plt
 import pylab as pyl
+import time
 
 try:
     import pyopencl as cl
@@ -15,9 +16,44 @@ except:
     pass
 
 
+clkernel = """
+__kernel void RenderImg(__global unsigned int* Data, __global unsigned int* Image, __global unsigned int* ScaleFac, __global unsigned int* nElems, __global unsigned int* nSam, __global unsigned int* DelIdx, __global unsigned int* AF)
+{
+    //get our index in the array
+    unsigned int yy = get_global_id(0);
+    unsigned int xx = get_global_id(1);
+    //printf("x%d ", xx);
+    //printf("y%d ", yy);
+    //printf("%d           ", Data[xx,yy]);
+    long nn;
+    for (nn = 0; nn<64; nn++)
+    {
+        printf( (__constant char *) "%d    ", nn);
+        // Each pixel takes data from each channel
+        //BufPos = self.ActiveFrame * self.nElements + nn # Buffer number to be used
+    }
+
+//
+//        PixVal = 0
+//        RecPos = xx * self.nSamples + yy * scaleFactor + self.DelIdx[xx, nn] #Delay Index for angle xx, for element nn
+//#       print 'element', nn
+//#       print self.Data[BufPos, RecPos:RecPos+scaleFactor]
+//        for kk in range(scaleFactor): # Each element was oversampled per pixel
+//            if (RecPos + kk) > ( (xx+1) * self.nSamples): # You're on next record;
+//                 PixVal += 0
+//            else:
+//                 PixVal += self.Data[BufPos, RecPos + kk]
+//#       print 'sum', PixVal / scaleFactor
+//        Img[yy, xx] += PixVal / scaleFactor  # Add contribution of the Element
+
+}
+"""
+
+
+
 
 class Mux(object):
-    def __init__(self, Elements = 64, UseOpenCL = False):
+    def __init__(self, Elements = 64, maxAngles = 35, Focals = [8.0e-3], UseOpenCL = False):
         '''
         Multiplexer class, to pass between various functions and HiFUS
         '''
@@ -25,11 +61,11 @@ class Mux(object):
         self.nElements = Elements
         self.Elements = range(self.nElements)
 
-        self.maxAngles = 35
+        self.maxAngles = maxAngles
         self.Angles = range(-self.maxAngles,self.maxAngles)
         self.nAngles = len(self.Angles)
 
-        self.Focals = [8e-3] #[6e-3, 8e-3, 12e-3]]
+        self.Focals = Focals #[6e-3, 8e-3, 12e-3]]
         self.nFocals = len(self.Focals)
 
 
@@ -55,21 +91,28 @@ class Mux(object):
         while (self.nSamples/i >= 2*self.Imagenx) or not int(self.nSamples/float(i))==(self.nSamples/float(i)):
             i += 1
         self.Imageny = self.nSamples / i
-        self.Image = np.zeros((self.Imageny, self.Imagenx), dtype = np.uint16)
+        self.Image = np.zeros((self.Imageny, self.Imagenx), dtype = np.uint32)
+
+        self.UseCL = False
 
         if UseOpenCL:
-            try:
-                clv = cl.VERSION_TEXT
-                if not clv =="2012.1":
-                    raise Exception('Update your PyOpenCL version to 2012.1!' )
-            except:
-                raise Exception('Please install PyOpenCL or set UseOpenCL=False !' )
-            del clv
-            # create an OpenCL context
-            platform = cl.get_platforms()
-            my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
-            self.clCtx = cl.Context(devices=my_gpu_devices)
-            self.clQueue = cl.CommandQueue(self.clCtx)
+            self.__initCL__()
+
+    def __initCL__(self):
+        try:
+            clv = cl.VERSION_TEXT
+            if not clv =="2012.1":
+                raise Exception('Update your PyOpenCL version to 2012.1!' )
+        except:
+            raise Exception('Please install PyOpenCL or set UseOpenCL=False !' )
+        del clv
+        # create an OpenCL context
+        platform = cl.get_platforms()
+        my_gpu_devices = platform[0].get_devices(device_type=cl.device_type.GPU)
+        self.clCtx = cl.Context(devices = my_gpu_devices)
+        self.clQueue = cl.CommandQueue(self.clCtx)
+        self.UseCL = True
+
 
     def _calcDelays(self):
         c = 1.54e3 # Speed of cound in water
@@ -95,6 +138,53 @@ class Mux(object):
                     self.DelIdx[ifoc*self.nAngles + iang,iele] = tmp / dt #TODO Is this times 2? As there is two times the delay?
 
 
+    def _RenderImgGPU(self, scaleFactor):
+        c = 1.54e3 # Speed of cound in water
+        ep = 3.8e-5 # Element Pitch
+        if not self.UseCL:
+            raise Exception('Please install PyOpenCL or set UseOpenCL=False !')
+        # for a (input), we need to specify that this buffer should be populated from a
+        Data_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.Data)
+        # for b (output), we just allocate an empty buffer
+        Image_buf = cl.Buffer(self.clCtx, cl.mem_flags.WRITE_ONLY, self.Image.nbytes)
+        SF_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(scaleFactor))
+        nElements_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.nElements))
+        nSamples_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.nSamples))
+        DelIdx_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.DelIdx))
+        AF_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.ActiveFrame))
+        Program = cl.Program(self.clCtx, clkernel).build()
+#        Event = Program.RenderImg(self.clQueue, (self.Imageny, self.Imagenx), Data_buf, Image_buf, SF_buf, nElements_buf, nSamples_buf, DelIdx_buf, AF_buf)
+        Event = Program.RenderImg(self.clQueue, (1, 1), Data_buf, Image_buf, SF_buf, nElements_buf, nSamples_buf, DelIdx_buf, AF_buf)
+        Event.wait()
+        Img = np.zeros([m.Imageny,m.Imagenx], dtype = np.uint32)
+        cl.enqueue_copy(self.clQueue, Img, Image_buf)
+
+        self.clCtx.release
+        return Img
+
+    def _RenderImgCPU(self, scaleFactor):
+        t1 = time.time()
+        Img = np.zeros([m.Imageny,m.Imagenx], dtype = np.uint32)
+        for yy in range(self.Imageny): # Iterate over all pixels
+            print 'Working on line', yy
+            for xx in range(self.Imagenx):
+#                print 'Working on pixel', yy, xx
+                PixVal = 0
+                for nn in range(self.nElements): # Each pixel takes data from each channel
+                    BufPos = self.ActiveFrame * self.nElements + nn # Buffer number to be used
+                    RecPos = xx * self.nSamples + yy * scaleFactor + self.DelIdx[xx, nn] #Delay Index for angle xx, for element nn
+#                    print 'element', nn
+#                    print self.Data[BufPos, RecPos:RecPos+scaleFactor]
+                    for kk in range(scaleFactor): # Each element was oversampled per pixel
+                        if (RecPos + kk) > ( (xx+1) * self.nSamples): # You're on next record;
+                            PixVal += 0
+                        else:
+                            PixVal += self.Data[BufPos, RecPos + kk]
+#                    print 'sum', PixVal / scaleFactor
+                Img[yy, xx] = PixVal / scaleFactor  # Add contribution of the Element
+#                print 'pixel', yy, xx, Img[yy, xx]
+        print time.time() - t1
+        return Img
 
 
 
@@ -113,23 +203,11 @@ class Mux(object):
     def RenderImage(self):
         scaleFactor = self.nSamples / self.Imageny
         print scaleFactor
+        if (self.UseCL):
+            self.Image = self._RenderImgGPU(scaleFactor)
+        else:
+            self.Image = self._RenderImgCPU(scaleFactor)
         # Temp variable Img to manipulate
-        Img = np.zeros([m.Imageny,m.Imagenx], dtype = np.uint16)
-        for yy in range(self.Imageny): # Iterate over all pixels
-            for xx in range(self.Imagenx):
-                print 'Working on pixel', yy, xx
-                for nn in range(self.nElements): # Each pixel takes data from each channel
-                    BufPos = self.ActiveFrame * self.nElements + nn # Buffer number to be used
-                    PixVal = 0
-                    RecPos = xx * self.nSamples + yy * scaleFactor + self.DelIdx[xx, nn] #Delay Index for angle xx, for element nn
-                    for kk in range(scaleFactor): # Each element was oversampled per pixel
-                        if (RecPos + kk) > ( (xx+1) * self.nSamples): # You're on next record;
-                            PixVal += 0
-                        else:
-                            PixVal += self.Data[BufPos, RecPos + kk]
-#                    print PixVal
-                    Img[yy, xx] += PixVal / scaleFactor  # Add contribution of the Element
-        self.Image = Img
 
 
     def ShowImage(self):
@@ -163,5 +241,6 @@ except:
 
 del test, testcl
 
-m = Mux()
+m = Mux(UseOpenCL=True)
 m.RandBuffer()
+

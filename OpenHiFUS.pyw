@@ -34,7 +34,7 @@ import serial
 import struct
 import time
 import multiprocessing
-import cv2
+
 
 from guiqwt.plot import ImageWidget
 from guiqwt.plot import ImageDialog
@@ -45,7 +45,7 @@ from guiqwt.builder import make
 #see guiqwt.image.RawImageItem  for additional methods on image adjustment
 
 
-MULTIPROCESS = True
+MULTIPROCESS = False
 
 #SEE END OF FILE FOR HARDWARE IMPORT
 
@@ -53,7 +53,7 @@ MULTIPROCESS = True
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         """
-        Main window for OpenHiFUS ultrasound imaging applicaiton 
+        Main window for OpenHiFUS ultrasound imaging applicaiton
 
         """
         super(MainWindow, self).__init__(parent)
@@ -102,7 +102,7 @@ class MainScanWindow(QWidget):
         #This is owned by the MainScanWindow widget and
         #referenced by the individual image mode widgets
         self.dataObject = HiFUSData()
-            
+
 
         #GUI appearance
         BModePalette = QPalette()
@@ -112,7 +112,7 @@ class MainScanWindow(QWidget):
         MModePalette = QPalette()
         MModePalette.setColor(QPalette.Window, Qt.darkGray)
         MModePalette.setColor(QPalette.WindowText, Qt.white)
-        
+
 
         #Each imaging mode widget is given a tab in the central widget
         self.imageModeTabs = QTabWidget()
@@ -127,7 +127,7 @@ class MainScanWindow(QWidget):
         tab += 1
 
         #M Mode Imaging
-        self.MModeTab = MModeWindow(self.dataObject)   
+        self.MModeTab = MModeWindow(self.dataObject)
         self.MModeTab.setAutoFillBackground(True)
         self.MModeTab.setPalette(MModePalette)
         self.imageModeTabs.insertTab(tab,self.MModeTab, 'M Mode')
@@ -144,9 +144,9 @@ class MainScanWindow(QWidget):
 
         #Set the GUI layout
         grid = QGridLayout()
-        grid.addWidget(self.imageModeTabs,0,0)        
+        grid.addWidget(self.imageModeTabs,0,0)
         self.setLayout(grid)
-        
+
 
 class BModeWindow(QWidget):
     def __init__(self, dataObject, parent=None):
@@ -195,8 +195,8 @@ class BModeWindow(QWidget):
                                                    ylabel="Depth (mm)", \
                                                    ysection_pos="left"))
 
-        
-        
+
+
         #Create a local image data array and a guiqwt.image.ImageItem
         imgyPx, imgxPx = self.dataObject.BData.shape
         self.currentImageData = numpy.zeros([imgxPx, imgyPx])
@@ -220,7 +220,7 @@ class BModeWindow(QWidget):
         plot.add_item(self.currentImage)
         #plot.set_active_item(self.currentImage)
 
-        
+
 
         #Signal Range
         self.BSignalRange = dataObject.getBRange()
@@ -248,7 +248,7 @@ class BModeWindow(QWidget):
 
         #Replay
         self.replayWidget = ReplayWidget(self.dataObject)
-        
+
 
         #-----------
         # GUI layout
@@ -278,7 +278,7 @@ class BModeWindow(QWidget):
         line.setFrameStyle(QFrame.HLine)
         grid.addWidget(line)
         row += 1
-        
+
 
         grid.addWidget(QLabel("Noise Floor Adjust (dB):"),row,0)
         row += 1
@@ -302,7 +302,7 @@ class BModeWindow(QWidget):
         plotLayout.addWidget(self.plotDialog,0,0)
         plotLayout.addWidget(self.gainWidget,0,1)
         plotLayout.addWidget(self.replayWidget,1,0)
-           
+
         plotVSpacer = QVBoxLayout()
         plotVSpacer.addStretch()
         plotVSpacer.addLayout(plotLayout)
@@ -318,7 +318,7 @@ class BModeWindow(QWidget):
         self.saveButton.setSizePolicy(QSizePolicy(QSizePolicy.Preferred))
         grid.addWidget(self.saveButton)
         row += 1
-        
+
         self.setLayout(grid)
 
 
@@ -334,7 +334,7 @@ class BModeWindow(QWidget):
         self.connect(self.saveButton,  SIGNAL("clicked()"), self.exportRFData)
         self.connect(self.dataObject,  SIGNAL("newBData"),  self.replot)
         self.connect(self.dataObject,  SIGNAL("faildata"),  self.stopBScan)
-        
+
 
     def runBScan(self):
         """ Method calls program loop to acquire B mode images """
@@ -350,7 +350,7 @@ class BModeWindow(QWidget):
         self.dataObject.setTimeGain(self.gainWidget.gain)
         self.dataObject.collect()
 
-        
+
 
     def stopBScan(self):
         """ Stop B Mode Image Acquisition """
@@ -388,11 +388,11 @@ class BModeWindow(QWidget):
         #Parse out the number of frames to average from the combo box text
         temp = int(str(self.averageComboBox.currentText()).split()[0])
         self.dataObject.setBAverage(temp)
-        
+
 
     def replot(self, imageData):
         """ Update all B Mode images and related data display """
-        
+
         self.currentImageData = imageData
         self.currentImage.set_data(self.currentImageData)
         self.currentImage.set_lut_range(self.BSignalRange)
@@ -418,7 +418,7 @@ class BModeWindow(QWidget):
         if MULTIPROCESS == True and self.dataObject.alive == True:
              QMessageBox.warning(self, "User Action Required", "Scanning must be stopped before buffer export.")
 
-        else:        
+        else:
             #Now save the current data
             filename = QFileDialog.getSaveFileName(self, 'Save File')
             if filename != "":
@@ -430,12 +430,12 @@ class BModeWindow(QWidget):
         The GuiQWT objects don't repaint when their parents palette
         is updated. Apply palette here with any modifications  wanted.
         """
-        
+
         windowPalette = self.palette()
-        
+
         #Set the axis values to general foreground color
         #These are defined by QPallet.Text, which makes them init
-        #diferently from the general foreground (WindowText) color. 
+        #diferently from the general foreground (WindowText) color.
         plotPalette = self.plotDialog.palette()
         plotPalette.setColor(QPalette.Text, windowPalette.color(QPalette.WindowText))
         plotPalette.setColor(QPalette.WindowText, windowPalette.color(QPalette.WindowText))
@@ -458,7 +458,7 @@ class TimeGainWidget(QWidget):
                               scale gain value
                - dataLength, number of data points in the RF record of each A Line
                - maxGain, maximum gain, in dB
-               
+
         Output - self.gain, this is a linear scale gain factor
                             for each point in RF A line
 
@@ -480,7 +480,7 @@ class TimeGainWidget(QWidget):
             self.sliderList[i].setMaximum(maxGain)
             self.sliderList[i].setValue(0)
 
-        
+
         #--------------
         # Widget Layout
         #--------------
@@ -509,7 +509,7 @@ class TimeGainWidget(QWidget):
         coarseList = numpy.array(range(self.sliderCount), dtype=numpy.float)
         fineList   = numpy.array(range(self.dataLength), dtype=numpy.float)
         fineList  *= float(self.sliderCount-1) / float(self.dataLength-1)
-        
+
         self.gain[:] = numpy.interp(fineList,coarseList,coarseGain)
 
         self.emit(SIGNAL('newTimeGain'), self.gain)
@@ -520,7 +520,7 @@ class ReplayWidget(QWidget):
     def __init__(self, dataObject, parent=None):
         """
         Widget to replay a sequence of BImages as a video stream.
-        
+
         Required Arguments
 
         dataobject:   Contains buffers and processed data.
@@ -537,7 +537,7 @@ class ReplayWidget(QWidget):
         self.frameSlider.setMinimum(0)
         self.frameSlider.setMaximum(self.dataObject.BVideoLength)
         self.frameSlider.setValue(0)
-        
+
 
         #--------------
         # Widget Layout
@@ -589,7 +589,7 @@ class ReplayWidget(QWidget):
         if filename != "":
 
             length, height, width = self.dataObject.BVideo.shape
-            
+
             video = cv2.VideoWriter(str(filename),-1,int(self.dataObject.frameRate),(width,height))
 
             maxVal = self.dataObject.BRange[1]
@@ -598,17 +598,17 @@ class ReplayWidget(QWidget):
 
             for i in range(length):
 
-                tempFrame[:,:,0] = self.dataObject.BVideo[i,:,:] * (2**16-1) / maxVal  
+                tempFrame[:,:,0] = self.dataObject.BVideo[i,:,:] * (2**16-1) / maxVal
                 tempFrame[:,:,1] = self.dataObject.BVideo[i,:,:] * (2**16-1) / maxVal
                 tempFrame[:,:,2] = self.dataObject.BVideo[i,:,:] * (2**16-1) / maxVal
-                
+
                 video.write(tempFrame)
 
             cv2.destroyAllWindows()
             video.release()
 
-        
-        
+
+
 
 
 class MModeWindow(QWidget):
@@ -642,7 +642,7 @@ class MModeWindow(QWidget):
         # GUI widgets setup
         #------------------
 
-        #"Run" and "Stop" buttons 
+        #"Run" and "Stop" buttons
         self.runButton  = QPushButton("Scan")
         self.stopButton = QPushButton("Stop")
 
@@ -668,7 +668,7 @@ class MModeWindow(QWidget):
         self.depthValueEdit.setValue(self.depthArray[self.depthSliderIndex])
         self.depthValueEdit.setSuffix(' mm')
 
-        
+
         #M Mode display uses guiqwt.plot.ImageDialog()
         MRange = dataObject.getMTimeRange()
         BDepth = dataObject.getBDepth()
@@ -682,8 +682,8 @@ class MModeWindow(QWidget):
                                                    ysection_pos="left", \
                                                    xsection_pos="bottom", \
                                                    show_xsection=False))
-        
-        
+
+
 
         #Create a local image data array and a guiqwt.image.ImageItem
         imgyPx, imgxPx = self.dataObject.MData.shape
@@ -693,7 +693,7 @@ class MModeWindow(QWidget):
                                            ydata = dataObject.getBDepth(), \
                                            colormap='gist_gray', \
                                            interpolation='nearest')
-        
+
         imgRange = self.dataObject.getBRange()
         self.currentMImage.set_lut_range(imgRange)
         plot = self.MDialog.get_plot()
@@ -714,7 +714,7 @@ class MModeWindow(QWidget):
                                                 xlabel="Position (mm)", \
                                                 ylabel="Depth (mm)", \
                                                 ysection_pos="left"))
-        
+
         #Create a local image data array and a guiqwt.image.ImageItem
         imgyPx, imgxPx = self.dataObject.BData.shape
         self.currentBImageData = numpy.zeros([imgxPx, imgyPx])
@@ -723,7 +723,7 @@ class MModeWindow(QWidget):
                                         ydata = dataObject.getBDepth(), \
                                         colormap='gist_gray', \
                                         interpolation='nearest')
-        
+
         self.currentBImage.set_lut_range(dataObject.getBRange())
         plot = self.BDialog.get_plot()
         plot.add_item(self.currentBImage)
@@ -736,7 +736,7 @@ class MModeWindow(QWidget):
         self.positionMarkerB = make.vcursor(0.0, label=None, constraint_cb=None, movable=False, readonly=True)
         plot.add_item(self.positionMarkerB)
 
-            
+
         #Cross section plot
         #The same CurveDialog contains bot the time and frequency domain plots
 
@@ -762,7 +762,7 @@ class MModeWindow(QWidget):
                                         marker=None, markersize=5, markerfacecolor="red",
                                         markeredgecolor="black", shade=None, fitted=None,
                                         curvestyle=None, curvetype=None, baseline=None,
-                                        xaxis="bottom", yaxis="left")  
+                                        xaxis="bottom", yaxis="left")
         plot.add_item(self.xsectionCurve)
 
 
@@ -774,11 +774,11 @@ class MModeWindow(QWidget):
                                           marker=None, markersize=5, markerfacecolor="red",
                                           markeredgecolor="black", shade=None, fitted=None,
                                           curvestyle=None, curvetype=None, baseline=None,
-                                          xaxis="top", yaxis="right")  
+                                          xaxis="top", yaxis="right")
         plot.add_item(self.xfrequencyCurve)
         plot.enable_used_axes() #call neede to show second set of axis
         """
-        
+
 
         #-----------
         # GUI layout
@@ -805,7 +805,7 @@ class MModeWindow(QWidget):
         grid.addLayout(frameRateLayout, row, 0)
         row += 1
 
-        
+
         depthLabelLayout = QHBoxLayout()
         depthLabel = QLabel('Analysis Depth:')
         depthLabelLayout.addWidget(depthLabel)
@@ -831,7 +831,7 @@ class MModeWindow(QWidget):
         plotHSpacer.addStretch()
         grid.addLayout(plotHSpacer, row, 0)
         row += 1
-        
+
         self.setLayout(grid)
 
         #------------------
@@ -854,7 +854,7 @@ class MModeWindow(QWidget):
         if self.isScanning == False:
             dataPackage = (self.currentBImageData,self.currentMImageData)
             self.replot(dataPackage, setFrameRate=False)
-        
+
 
     def setDepthValueEdit(self, sliderIndex):
         self.depthSliderIndex = sliderIndex
@@ -880,7 +880,7 @@ class MModeWindow(QWidget):
         #Start data collection
         self.dataObject.setMMode()
         self.dataObject.collect()
-        
+
 
     def stopMScan(self):
 
@@ -896,7 +896,7 @@ class MModeWindow(QWidget):
 
 
     def replot(self, dataPackage, setFrameRate=True):
-        
+
         #Unpack data from the tuple
         BImageData = dataPackage[0]
         MImageData = dataPackage[1]
@@ -912,7 +912,7 @@ class MModeWindow(QWidget):
         self.currentBImage.set_data(BImageData)
         plot = self.BDialog.get_plot()
         plot.replot()
-        
+
         #When replot is called from the scan method the frame
         #rate should be updated. When a redraw is needed by a slider
         #depth update the frame rate should not be changed.
@@ -930,7 +930,7 @@ class MModeWindow(QWidget):
         #Frequency analysis not needed in MMode
         #wData, XData = frequencySpectrum(tData, xData, timebase=1.0)
         #self.xfrequencyCurve.set_data(wData, XData)
-                
+
         plot = self.xsectionDialog.get_plot()
         plot.replot()
 
@@ -941,7 +941,7 @@ class MModeWindow(QWidget):
 
 
 class RFWindow(QWidget):
-    
+
     def __init__(self, dataObject, parent=None):
         """
         Class contains GUI tools and layout for RF data display
@@ -967,7 +967,7 @@ class RFWindow(QWidget):
         # GUI widgets setup
         #------------------
 
-        #Set "Run" and "Stop" buttons in horizontal layout 
+        #Set "Run" and "Stop" buttons in horizontal layout
         self.runButton  = QPushButton("Scan")
         self.stopButton = QPushButton("Stop")
 
@@ -976,23 +976,23 @@ class RFWindow(QWidget):
         self.frameRate = 0.0
         self.frameRateLabel = QLabel()
         self.fpsClock = time.clock
-        
+
         frameRateLayout = QHBoxLayout()
         frameRateLayout.addWidget(QLabel('Frame Rate (fps): '))
         frameRateLayout.addWidget(self.frameRateLabel)
         frameRateLayout.addStretch()
-        
+
 
         #Label to report signal rms
         self.Vrms = 0.0
         self.VrmsLabel = QLabel()
-        
+
         VrmsLayout = QHBoxLayout()
         VrmsLayout.addWidget(QLabel('Signal (mVrms): '))
         VrmsLayout.addWidget(self.VrmsLabel)
         VrmsLayout.addStretch()
 
-        
+
         #Time domain plot using a guiqwt.plot.CurveDialog
         self.plotDialog = simpleCurveDialog(edit=True, toolbar=True,
                                             options=dict(xlabel="Time (s)", ylabel="Signal (mV)"))
@@ -1011,7 +1011,7 @@ class RFWindow(QWidget):
                                   marker=None, markersize=5, markerfacecolor="red",
                                   markeredgecolor="black", shade=None, fitted=None,
                                   curvestyle=None, curvetype=None, baseline=None,
-                                  xaxis="bottom", yaxis="left")  
+                                  xaxis="bottom", yaxis="left")
         plot.add_item(self.RFCurve)
 
 
@@ -1024,16 +1024,16 @@ class RFWindow(QWidget):
         axisId = plot.get_axis_id('bottom')
         plot.set_axis_limits(axisId, 0, 100)
         #allow yaxis to autoscale
-        
+
         wRF, pRF = frequencySpectrum(xRF, yRF)
         self.powerCurve = make.curve(wRF, pRF, color='black', linestyle='SolidLine', linewidth=1,
                                      marker=None, markersize=5, markerfacecolor="red",
                                      markeredgecolor="black", shade=None, fitted=None,
                                      curvestyle=None, curvetype=None, baseline=None,
-                                     xaxis="bottom", yaxis="left")  
+                                     xaxis="bottom", yaxis="left")
         plot.add_item(self.powerCurve)
-        
-         
+
+
         #-----------
         # GUI layout
         #-----------
@@ -1081,7 +1081,7 @@ class RFWindow(QWidget):
         #Start data collection
         self.dataObject.setRF()
         self.dataObject.collect()
-        
+
 
     def stopRFScan(self):
         try:
@@ -1091,7 +1091,7 @@ class RFWindow(QWidget):
 
 
     def replot(self, RFData):
-        
+
         self.RFCurve.set_data(RFData[0,:], RFData[1,:])
         plot = self.plotDialog.get_plot()
         plot.replot()
@@ -1116,7 +1116,7 @@ class RFWindow(QWidget):
     def setMCU(self, MCU):
         self.MCU = MCU
 
-  
+
 
 class simpleCurveDialog(CurveDialog):
     """
@@ -1125,7 +1125,7 @@ class simpleCurveDialog(CurveDialog):
     """
     def install_button_layout(self):
         pass
-    
+
 
 class HiFUSData(QObject):
 
@@ -1183,11 +1183,11 @@ class HiFUSData(QObject):
         #Demodulated output data
         self.decimation  = DAQ.GetDecimation()
         self.iqLength    = self.lenBuffers / self.decimation
-        self.iqData      = numpy.empty([self.numBuffers,self.iqLength], dtype=numpy.double, order='C')        
+        self.iqData      = numpy.empty([self.numBuffers,self.iqLength], dtype=numpy.double, order='C')
 
         self._shIQDataArr = multiprocessing.Array('d',self.iqData.size)
         self.shIQData     = numpy.frombuffer(self._shIQDataArr.get_obj(),dtype='d')
-        self.shIQData     = self.shIQData.reshape(self.iqData.shape,order='C') 
+        self.shIQData     = self.shIQData.reshape(self.iqData.shape,order='C')
 
         #BMode data
         self.BLength = self.recordLength / self.decimation
@@ -1234,11 +1234,11 @@ class HiFUSData(QObject):
         self.shMData     = numpy.frombuffer(self._shMDataArr.get_obj(),dtype='d')
         self.shMData     = self.shMData.reshape(self.MData.shape,order='C')
 
-        
+
         #RF data output
         self.RFRecordLength = DAQ.GetRecordLength()
         self.RFData         = numpy.zeros([2,self.RFRecordLength], dtype=numpy.double)
-        self.RFTimeRange    = [4.0E-06, 4.0E-06+(self.RFRecordLength-1)/self.sampleRate] 
+        self.RFTimeRange    = [4.0E-06, 4.0E-06+(self.RFRecordLength-1)/self.sampleRate]
         self.RFData[0,:]    = numpy.linspace(self.RFTimeRange[0], self.RFTimeRange[1], self.RFRecordLength)
         self.RFDataStart    = (self.recordCnt/2)*self.RFRecordLength-1
         self.RFDataStop     = self.RFDataStart + self.RFRecordLength
@@ -1350,7 +1350,7 @@ class HiFUSData(QObject):
 
         else:
             return numpy.array(self.buffers[self.bufIndex-1,:])
-      
+
 
     def collect(self):
         if MULTIPROCESS == True:
@@ -1372,10 +1372,10 @@ class HiFUSData(QObject):
 
     def stopBVideo(self):
         self.BVideoTimer.stop()
-        self.BVideoIndex = 0    
+        self.BVideoIndex = 0
 
     def collectSP(self):
-        
+
         #Check to verify the buffers were properly configured
         if self.bufferCheck != True:
             print 'bufferCheck fail'
@@ -1430,7 +1430,7 @@ class HiFUSData(QObject):
                 self.MData[:,0] = self.BData[:,self.BLines/2-1]
                 dataPackage = self.BData, self.MData
                 self.emit(SIGNAL('newMData'), dataPackage)
-               
+
             if self.emitRF == True:
                 self.RFData[1,:] = self.buffers[bufIndex-1, self.RFDataStart:self.RFDataStop]*1.22072175174e-02 - 400
                 self.emit(SIGNAL('newRFData'), self.RFData)
@@ -1439,7 +1439,7 @@ class HiFUSData(QObject):
             #self.alive=False
 
         else:
-            DAQ.StopAcquisition(self.boardHandle)  
+            DAQ.StopAcquisition(self.boardHandle)
             return
 
     def collectMP(self):
@@ -1456,8 +1456,8 @@ class HiFUSData(QObject):
         while(self.parentSocket.poll() == False):
             QApplication.processEvents()
         self.parentSocket.recv()
-       
-        
+
+
         self.alive = True
         while(self.alive):
 
@@ -1474,7 +1474,7 @@ class HiFUSData(QObject):
                 self.parentSocket.send(True)
                 #emit the new data to the replot function
                 self.emit(SIGNAL('newBData'), self.BData)
-            
+
             if self.emitM == True:
                 #send for data
                 self.parentSocket.send('MData')
@@ -1504,9 +1504,9 @@ class HiFUSData(QObject):
                 self.parentSocket.send(True)
                 #emit the new data to the replot function
                 self.emit(SIGNAL('newRFData'), self.RFData)
-            
+
             QApplication.processEvents()
-            
+
         else:
             self.parentSocket.send('idle')
             while(self.parentSocket.poll() == False):
@@ -1546,7 +1546,7 @@ class HiFUSData(QObject):
                 stopped = True
 
         return stopped
-                
+
 
 
 def CollectProcess(childSocket, \
@@ -1584,8 +1584,8 @@ def CollectProcess(childSocket, \
 
     RFData = numpy.frombuffer(_shRFDataArr.get_obj(),dtype='d')
     RFData = RFData.reshape(RFDataShape,order='C')
-    
-        
+
+
     #Send a message to the parent to indicate the process has started
     childSocket.send(True)
     alive = True
@@ -1607,12 +1607,12 @@ def CollectProcess(childSocket, \
 
     BAverage = 1
     tempData = numpy.copy(iqData[0,:])
-    
+
     BVideoLength = BVideoShape[0]
     BVideoIndex = 0
-    
+
     while(alive):
-        
+
         while idle == True:
             #The routine just sleeps and polls for instrucitons
             time.sleep(0.1)
@@ -1647,11 +1647,11 @@ def CollectProcess(childSocket, \
                     #Wait for command to resume
                     childSocket.recv()
 
-                #Exiting the idle. 
+                #Exiting the idle.
                 elif message == 'scan':
-                    
+
                     idle = False
-        
+
                     #Setup the DAQ board
                     configResult = DAQ.ConfigureBoard(boardHandle)
                     if configResult != True:
@@ -1663,7 +1663,7 @@ def CollectProcess(childSocket, \
                     if postResult != True:
                         childSocket.send('Post fail')
                         return
-           
+
                     bufIndex = 0
                     BVideoIndex = 0
 
@@ -1684,7 +1684,7 @@ def CollectProcess(childSocket, \
             childSocket.send('Acquire fail')
             self.alive = False
             return
-               
+
         #if BAverage > 1:
         DAQ.IQDemodulateAvg(buffers, tempData, bufIndex, BAverage, gain)
         dataToBMode(tempData, BData, BLength, BLines)
@@ -1696,14 +1696,14 @@ def CollectProcess(childSocket, \
         MData[:] = numpy.roll(MData, 1)
         MData[:,0] = BData[:,BLines/2-1]
         RFData[1,:] = buffers[bufIndex, RFStart:RFStop]*1.22072175174e-02 - 400
-            
+
         bufIndex += bufPerAcq
         bufIndex  = bufIndex % bufferCnt
 
         #Check if the parent wants new data, every other time
         if childSocket.poll() == True:
             cmd = childSocket.recv()
-            #First populate the shared array with new data 
+            #First populate the shared array with new data
             #then send a message to indicate the shared array is updated
 
             if cmd == 'BData':
@@ -1750,7 +1750,7 @@ def CollectProcess(childSocket, \
                 alive = False
                 childSocket.send(False)
 
-        
+
 
 
 class DummyHardware(object):
@@ -1763,7 +1763,7 @@ class DummyHardware(object):
     sampleCnt=5120
     chanCnt=1
     sampleRate=500.0E+06
-    triggerDelay = 0.0    
+    triggerDelay = 0.0
 
     def __init__(self, parent= None):
         """
@@ -1778,7 +1778,7 @@ class DummyHardware(object):
         native extensions using pythons c language api.
         """
         pass
-    
+
 
     def SetBufferRecordSampleCount(self,bufferCnt,recordCnt,sampleCnt):
         """
@@ -1795,7 +1795,7 @@ class DummyHardware(object):
                     recordCnt (int), the number of records (A lines) per image.
 
                     sampleCnt (int), the length of each recorded record (A line).
-        """        
+        """
 
         self.bufferCnt = bufferCnt
         self.recordCnt = recordCnt
@@ -1825,7 +1825,7 @@ class DummyHardware(object):
         """
 
         return 1
-    
+
 
     def GetSampleRate(self):
         """
@@ -1862,7 +1862,7 @@ class DummyHardware(object):
         bufferLength = self. chanCnt * self.recordCnt * self.sampleCnt
 
         return bufferLength
-    
+
 
     def CheckBufferSize(self, boardHandle, buffers):
         """
@@ -1919,7 +1919,7 @@ class DummyHardware(object):
 
         Returns: recordLength (int)
         """
-        
+
         recordLength = self.sampleCnt
         return recordLength
 
@@ -1985,16 +1985,16 @@ class DummyHardware(object):
         """
         a = bufIndex
         b = bufIndex + bufPerAcq
-        
+
         sigAmp = 50
         sigRange = 2**16
         tempRF = numpy.random.rand(bufPerAcq,buffers.shape[1])*sigAmp + 0.5*sigRange
-        
+
         buffers[a:b,:] = numpy.array(tempRF, dtype=buffers.dtype)
 
         if iqData is not None:
             envAmp = 10
-            tempIQ = numpy.random.rand(bufPerAcq,iqData.shape[1])*envAmp 
+            tempIQ = numpy.random.rand(bufPerAcq,iqData.shape[1])*envAmp
             iqData[a:b,:] = numpy.abs(numpy.array(tempIQ, dtype=iqData.dtype))
 
         return True
@@ -2052,9 +2052,9 @@ class DummyHardware(object):
             tempIQ  = tempIQ.reshape([n,m])
             tempIQ += 20*numpy.log10(gain[0,::self.decimation])
             tempIQ  = tempIQ.reshape([1,iqData.size])
-            
+
         iqData[:] = numpy.array(tempIQ, dtype=iqData.dtype)
-        
+
         return True
 
     def StopAcquisition(self, boardHandle):
@@ -2069,7 +2069,7 @@ class DummyHardware(object):
 
         Returns: True on success
         """
-        
+
         return True
 
     def SetTriggerDelaySec(self, delay):
@@ -2091,7 +2091,7 @@ class DummyHardware(object):
 
 def dataToBMode(data, imageData, imageDepth, imageLines):
     """ Function converts A scan lines into B mode image """
-  
+
     srt = 0;
     for datasep in range(imageLines):
         imageData[:,datasep]=data[srt:srt+imageDepth];
@@ -2102,10 +2102,10 @@ def dataToBMode(data, imageData, imageDepth, imageLines):
 def frequencySpectrum(xData,yData,timebase=1.0E+06):
     """
     Generate the frequency vector for the fft
-    
+
     Keyword arguments:
         N - number of points in DFT(integer)
-        df - frequency resolution (Hz) 
+        df - frequency resolution (Hz)
     """
 
     #Make use of the fft capabilities in the numpy library
@@ -2121,11 +2121,11 @@ def frequencySpectrum(xData,yData,timebase=1.0E+06):
     w = numpy.fft.fftfreq(len(xData), xData[1]-xData[0]) / timebase
     H = numpy.fft.fft(yData) / N
     P = numpy.real(H*numpy.conjugate(H))
-    
+
     return w[1:n], P[1:n]
 
 
-  
+
 class MCUWidget(QWidget):
     def __init__(self, parent=None):
         super(MCUWidget, self).__init__(parent)
@@ -2133,14 +2133,14 @@ class MCUWidget(QWidget):
         self.setWindowTitle("MCU")
 
         self.MCU = MCU()
-        
+
         #Port Connection
         self.connectButton     = QPushButton("Connect to:")
         self.portIdEdit        = QLineEdit("Enter Port ID Here")
         if(self.MCU.autoConnect()):
             self.portIdEdit.setText(self.MCU.name)
-        
-                
+
+
         #Pulse amplitude (+)
         self.pulsePAmpButton = QPushButton("+ Pulse Amplitude: ")
         self.pulsePAmpSpinBox = QDoubleSpinBox()
@@ -2254,12 +2254,12 @@ class MCUWidget(QWidget):
         self.connect(self.pulseNAmpSpinBox, SIGNAL("valueChanged(double)"), self.setNPulse)
         self.connect(self.ACButton, SIGNAL("clicked()"), self.setAC)
         self.connect(self.scanAmpSpinBox,  SIGNAL("valueChanged(double)"), self.setAmplitude)
-        self.connect(self.scanFreqSpinBox,  SIGNAL("valueChanged(double)"), self.setFrequency)  
+        self.connect(self.scanFreqSpinBox,  SIGNAL("valueChanged(double)"), self.setFrequency)
         self.connect(self.scanPhaseSpinBox, SIGNAL("valueChanged(double)"), self.setPhase)
         self.connect(self.DCButton, SIGNAL("clicked()"), self.setDC)
         self.connect(self.scanDCSpinBox, SIGNAL("valueChanged(double)"), self.setDC)
 
-        
+
     def connectMCU(self):
         portIDtext = unicode(self.portIdEdit.text())
         self.MCU.connect(portIDtext)
@@ -2295,11 +2295,11 @@ class MCUWidget(QWidget):
 
 class MCU(serial.Serial):
     """ Class definition for serial communication to Arduino
-        w/ added functionality specific to the MCU 
+        w/ added functionality specific to the MCU
 
         Notes:
         1 - MCU is inherited form serial.Serial
-        2 - Initialization does not open the serial connection 
+        2 - Initialization does not open the serial connection
         3 - Do not directly call the inherited open() method, as
             the Arduino requires reboot time, the connect() method
             allows for this.
@@ -2321,9 +2321,9 @@ class MCU(serial.Serial):
         'ushort':   'H', \
         'float':    'f'  \
         }
-    
+
     def __init__(self):
-        """Intialize the serial class but do not open connection"""       
+        """Intialize the serial class but do not open connection"""
         serial.Serial.__init__(self, port=None, baudrate=9600, timeout=1.0, writeTimeout=1.0)
 
 
@@ -2334,7 +2334,7 @@ class MCU(serial.Serial):
         import serial
         for i in range(256):
             try:
-                sTest = serial.Serial(i)                
+                sTest = serial.Serial(i)
                 port_list.append(sTest.portstr)
                 port = i
                 sTest.close()
@@ -2349,10 +2349,10 @@ class MCU(serial.Serial):
         self.port = portID
         try:
             #ensure the specified port is close to begin with
-            self.close()        
-            self.open()        
+            self.close()
+            self.open()
             #wait for device to reboot
-            time.sleep(2.0)     
+            time.sleep(2.0)
             #Test connection
             if(bool(self.sendEcho(True))):
                 return True
@@ -2362,7 +2362,7 @@ class MCU(serial.Serial):
 
         except serial.SerialException:
             self.close()
-            self.port = ''            
+            self.port = ''
             return False
 
 
@@ -2385,7 +2385,7 @@ class MCU(serial.Serial):
 
     def _send(self, cmd, data, fmt):
         """Private function used to send serial data"""
-        
+
         try:
             cmdString      = struct.pack(self.fmtCode['ubyte'], cmd)
             self.write(cmdString)
@@ -2393,10 +2393,10 @@ class MCU(serial.Serial):
             dataString     = struct.pack(fmt, data)
             self.write(dataString)
             return True
-            
+
         except:
             return False
-    
+
 
     def setAC(self):
         """ Resume AC scan signal """
@@ -2406,7 +2406,7 @@ class MCU(serial.Serial):
         """ Set the scanner amplitude [0, 1] """
         if k >= 0.0 and k <= 1.0:
             self._send(self.opCode['AMP_ADJUST'], k, self.fmtCode['float'])
-        
+
     def setFrequency(self, f):
         """ Set the scanner frequency, f = [10, 1000] """
         if f >= 10.0 and f <= 1000.0:
@@ -2435,8 +2435,8 @@ class MCU(serial.Serial):
 try:
     import PyDaxAlazar as DAQ
 except:
-    DAQ = DummyHardware()        
-  
+    DAQ = DummyHardware()
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     #splash_pix = QPixmap('')
@@ -2448,8 +2448,8 @@ if __name__ == '__main__':
     #splash.finish(form)
     app.exec_()
 
-                    
 
 
 
-        
+
+
