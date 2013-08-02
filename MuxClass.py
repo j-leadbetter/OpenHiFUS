@@ -17,35 +17,40 @@ except:
 
 
 clkernel = """
-__kernel void RenderImg(__global unsigned int* Data, __global unsigned int* Image, __global unsigned int* ScaleFac, __global unsigned int* nElems,  __global unsigned int* nSam, __global unsigned int* DelIdx, __global unsigned int* AF)
+__kernel void RenderImg(__global unsigned int* Data, __global unsigned int* Image, __global unsigned int* DelIdx, __constant unsigned int* ScaleFac, __constant unsigned int* nElem,  __constant unsigned int* nSam, __global unsigned int* AF, __constant unsigned int* BufLen)
 {
     //get our index in the array
     unsigned int yy = get_global_id(0);
+    unsigned int ys = get_global_size(0);
     unsigned int xx = get_global_id(1);
-    printf((__constant char *)"x%d ", xx);
-    printf((__constant char *)"y%d ", yy);
-    //printf((__constant char *)"%d           ", Data[xx,yy]);
-    long nn;
-    for (nn = 0; nn<64; nn++)
+    unsigned int xs = get_global_size(1);
+    //printf((__constant char *)"x%d ", xx);
+    //printf((__constant char *)"y%d ", yy);
+    //printf((__constant char *)"%d           ", Data[yy*xs+xx]);
+    int nn, kk;
+    int BufPos = 0;
+    int PixVal = 0;
+    int RecPos = 0;
+    for (nn = 0; nn<*nElem; nn++)
     {
-        printf( (__constant char *) "%d    ", nn);
-        // Each pixel takes data from each channel
-        //BufPos = self.ActiveFrame * self.nElements + nn # Buffer number to be used
+        BufPos = *AF * *nElem + nn; //Buffer number to be used
+        RecPos = xx * *nSam + yy * *ScaleFac + DelIdx[xx * *nElem + nn]; //Delay Index for angle xx, for element nn
+        for (kk = 0; kk<*ScaleFac; kk++)
+        // Each element was oversampled per pixel
+        {
+            if ((RecPos + kk) > ( (xx+1) * *nSam))
+            // You're on next record
+            {
+                PixVal += 0;
+            }
+            else
+            {
+                PixVal += Data[BufPos* *BufLen + RecPos + kk];
+            }
+        }
     }
-
-//
-//        PixVal = 0
-//        RecPos = xx * self.nSamples + yy * scaleFactor + self.DelIdx[xx, nn] #Delay Index for angle xx, for element nn
-//#       print 'element', nn
-//#       print self.Data[BufPos, RecPos:RecPos+scaleFactor]
-//        for kk in range(scaleFactor): # Each element was oversampled per pixel
-//            if (RecPos + kk) > ( (xx+1) * self.nSamples): # You're on next record;
-//                 PixVal += 0
-//            else:
-//                 PixVal += self.Data[BufPos, RecPos + kk]
-//#       print 'sum', PixVal / scaleFactor
-//        Img[yy, xx] += PixVal / scaleFactor  # Add contribution of the Element
-
+    Image[yy*xs+xx] = PixVal / *ScaleFac; // Add contribution of the Element
+    //Image[yy*xs+xx] = xx + 100*yy; // Add contribution of the Element
 }
 """
 
@@ -139,25 +144,26 @@ class Mux(object):
 
 
     def _RenderImgGPU(self, scaleFactor):
-        c = 1.54e3 # Speed of cound in water
-        ep = 3.8e-5 # Element Pitch
+        t1 = time.time()
         if not self.UseCL:
             raise Exception('Please install PyOpenCL or set UseOpenCL=False !')
         # for a (input), we need to specify that this buffer should be populated from a
         Data_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=self.Data)
         # for b (output), we just allocate an empty buffer
         Image_buf = cl.Buffer(self.clCtx, cl.mem_flags.WRITE_ONLY, self.Image.nbytes)
+        DelIdx_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.DelIdx))
         SF_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(scaleFactor))
         nElements_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.nElements))
         nSamples_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.nSamples))
-        DelIdx_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.DelIdx))
         AF_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(self.ActiveFrame))
+        BL_buf = cl.Buffer(self.clCtx, cl.mem_flags.READ_ONLY | cl.mem_flags.COPY_HOST_PTR, hostbuf=np.array(len(self.Data[0])))
         Program = cl.Program(self.clCtx, clkernel).build()
-#        Event = Program.RenderImg(self.clQueue, (self.Imageny, self.Imagenx), Data_buf, Image_buf, SF_buf, nElements_buf, nSamples_buf, DelIdx_buf, AF_buf)
-        Event = Program.RenderImg(self.clQueue, (1, 1), None, Data_buf, Image_buf, SF_buf, nElements_buf, nSamples_buf, DelIdx_buf, AF_buf)
+        Event = Program.RenderImg(self.clQueue, (self.Imageny, self.Imagenx), None, Data_buf, Image_buf, DelIdx_buf, SF_buf, nElements_buf, nSamples_buf, AF_buf, BL_buf )
+#        Event = Program.RenderImg(self.clQueue, (1, 1), None, Data_buf, Image_buf, SF_buf, nElements_buf, nSamples_buf, DelIdx_buf, AF_buf)
         Event.wait()
         Img = np.zeros([m.Imageny,m.Imagenx], dtype = np.uint32)
         cl.enqueue_copy(self.clQueue, Img, Image_buf)
+        print time.time() - t1
         return Img
 
     def _RenderImgCPU(self, scaleFactor):
@@ -200,7 +206,7 @@ class Mux(object):
 
     def RenderImage(self):
         scaleFactor = self.nSamples / self.Imageny
-        print scaleFactor
+#        print scaleFactor
         if (self.UseCL):
             self.Image = self._RenderImgGPU(scaleFactor)
         else:
