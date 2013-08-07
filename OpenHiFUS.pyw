@@ -18,9 +18,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 #Title: OpenHiFUS
-version='1.00'
-#Date: July 23, 2013
+version='1.03'
+#Date: August 6, 2013
 #Python Version 2.7.2
+
+# CHANGELOG
+# 1.03 Implemented PyOpenCL for IQDemodAvg
 
 import os
 import platform
@@ -34,7 +37,12 @@ import serial
 import struct
 import time
 import multiprocessing
+#import cv2
 
+try:
+    import pyopencl as cl
+except:
+    pass
 
 from guiqwt.plot import ImageWidget
 from guiqwt.plot import ImageDialog
@@ -45,7 +53,15 @@ from guiqwt.builder import make
 #see guiqwt.image.RawImageItem  for additional methods on image adjustment
 
 
+FIXEDSIZE = False
+
 MULTIPROCESS = False
+USEOCL = True
+
+#F,F = 135
+#F,T = 115
+#T,F = 135
+#T,T = ?? # Didn't implement OCL with MP
 
 #SEE END OF FILE FOR HARDWARE IMPORT
 
@@ -183,6 +199,7 @@ class BModeWindow(QWidget):
 
         #Label to report framerate
         self.frameRate = 0.0
+        self.FRAvg = 100.0 #Start at 100 for the average
         self.frameRateLabel = QLabel()
         self.fpsClock = time.clock
 
@@ -213,14 +230,16 @@ class BModeWindow(QWidget):
         #Set the plot size and add the image
         dx = abs(imgWidth[1]-imgWidth[0])
         dy = abs(imgDepth[1]-imgDepth[0])
-        nativeSize = QSize(650*dx/dy,600)
         plot = self.plotDialog.get_plot()
-        #plot.setMaximumSize(nativeSize)
-        #plot.setMinimumSize(nativeSize)
+        if FIXEDSIZE is True:
+            nativeSize = QSize(650*dx/dy,580)
+            plot.setMaximumSize(nativeSize)
+            plot.setMinimumSize(nativeSize)
         plot.add_item(self.currentImage)
-        #plot.set_active_item(self.currentImage)
+        plot.set_active_item(self.currentImage)
 
-
+        #Image adjust tools
+        #TODO: Move these to a dock-able toolbox
 
         #Signal Range
         self.BSignalRange = dataObject.getBRange()
@@ -242,6 +261,10 @@ class BModeWindow(QWidget):
         averageText = ["%d Frames" % i for i in self.averageList]
         self.averageComboBox = QComboBox()
         self.averageComboBox.addItems(averageText)
+
+        #Flip Image Left to Right
+        self.flipLRButton = QPushButton('Flip L/R')
+        self.flipLRButton.setCheckable(True)
 
         #Time Gain
         self.gainWidget = TimeGainWidget(dataLength=dataObject.RFRecordLength)
@@ -279,7 +302,6 @@ class BModeWindow(QWidget):
         grid.addWidget(line)
         row += 1
 
-
         grid.addWidget(QLabel("Noise Floor Adjust (dB):"),row,0)
         row += 1
         grid.addWidget(self.BNoiseFloorSlider)
@@ -301,12 +323,12 @@ class BModeWindow(QWidget):
         plotLayout = QGridLayout()
         plotLayout.addWidget(self.plotDialog,0,0)
         plotLayout.addWidget(self.gainWidget,0,1)
+        plotLayout.addWidget(self.flipLRButton,1,1)
         plotLayout.addWidget(self.replayWidget,1,0)
 
         plotVSpacer = QVBoxLayout()
         plotVSpacer.addStretch()
         plotVSpacer.addLayout(plotLayout)
-        #plotVSpacer.addWidget(self.replayWidget)
         plotVSpacer.addStretch()
         plotHSpacer = QHBoxLayout()
         plotHSpacer.addStretch()
@@ -321,7 +343,6 @@ class BModeWindow(QWidget):
 
         self.setLayout(grid)
 
-
         #------------------
         # Signals and slots
         #------------------
@@ -330,7 +351,8 @@ class BModeWindow(QWidget):
         self.connect(self.BSignalRangeSlider, SIGNAL("valueChanged(int)"), self.setBMaxPlotRange)
         self.connect(self.BNoiseFloorSlider, SIGNAL("valueChanged(int)"), self.setBMinPlotRange)
         self.connect(self.averageComboBox, SIGNAL("currentIndexChanged(int)"), self.setBAverage)
-        self.connect(self.gainWidget,  SIGNAL("newTimeGain"), self.dataObject.setTimeGain)
+        self.connect(self.flipLRButton, SIGNAL("clicked()"), self.flipLeftRight)
+        self.connect(self.gainWidget,  SIGNAL("newTimeGain"), self.setTimeGain)
         self.connect(self.saveButton,  SIGNAL("clicked()"), self.exportRFData)
         self.connect(self.dataObject,  SIGNAL("newBData"),  self.replot)
         self.connect(self.dataObject,  SIGNAL("faildata"),  self.stopBScan)
@@ -338,7 +360,6 @@ class BModeWindow(QWidget):
 
     def runBScan(self):
         """ Method calls program loop to acquire B mode images """
-
         if self.MCU is not None:
             self.MCU.setAC()
 
@@ -347,14 +368,13 @@ class BModeWindow(QWidget):
 
         #Start data collection
         self.dataObject.setBMode()
-        self.dataObject.setTimeGain(self.gainWidget.gain)
+        #self.dataObject.setTimeGain(self.gainWidget.gain)
         self.dataObject.collect()
 
 
 
     def stopBScan(self):
         """ Stop B Mode Image Acquisition """
-
         try:
             self.dataObject.alive = False
         except:
@@ -362,7 +382,6 @@ class BModeWindow(QWidget):
 
         if self.MCU is not None:
             self.MCU.setDC()
-
 
     def setBMaxPlotRange(self, sliderIndex):
         sliderIndex = max(1, sliderIndex)
@@ -389,10 +408,20 @@ class BModeWindow(QWidget):
         temp = int(str(self.averageComboBox.currentText()).split()[0])
         self.dataObject.setBAverage(temp)
 
+    def setTimeGain(self, gain):
+        self.dataObject.setTimeGain(gain)
+
+    def flipLeftRight(self):
+        """Flip the image from left to right """
+        flip = self.flipLRButton.isChecked()
+        plot = self.plotDialog.get_plot()
+        plot.set_axis_direction('bottom', flip)
+        plot.set_active_item(self.currentImage)
+        plot.replot()
+
 
     def replot(self, imageData):
         """ Update all B Mode images and related data display """
-
         self.currentImageData = imageData
         self.currentImage.set_data(self.currentImageData)
         self.currentImage.set_lut_range(self.BSignalRange)
@@ -402,7 +431,8 @@ class BModeWindow(QWidget):
 
         self.curClock = self.fpsClock()
         self.frameRate = 1.0 / ( self.curClock-self.preClock)
-        self.frameRateLabel.setText('{:.1f}'.format(self.frameRate))
+        self.FRAvg = 0.99*self.FRAvg + 0.01*self.frameRate
+        self.frameRateLabel.setText('{:.1f}'.format(self.FRAvg))
         self.preClock = self.curClock
 
         #TO DO: see documentaiton on guiqwt.plot.PlotManager,
@@ -428,7 +458,7 @@ class BModeWindow(QWidget):
     def setAppearance(self):
         """
         The GuiQWT objects don't repaint when their parents palette
-        is updated. Apply palette here with any modifications  wanted.
+        is updated. Apply palette here with any modifications wanted.
         """
 
         windowPalette = self.palette()
@@ -535,7 +565,7 @@ class ReplayWidget(QWidget):
 
         self.frameSlider = QSlider(Qt.Horizontal)
         self.frameSlider.setMinimum(0)
-        self.frameSlider.setMaximum(self.dataObject.BVideoLength)
+        self.frameSlider.setMaximum(self.dataObject.BVideoLength-1)
         self.frameSlider.setValue(0)
 
 
@@ -770,7 +800,7 @@ class MModeWindow(QWidget):
         """
         wdata = self.dataObject.MTime
         Ydata = self.dataObject.MTime*0
-        self.xfrequencyCurve = make.curve(wdata, Ydata, color='red', linestyle='DashLine', linewidth=1,
+        self.xfrequencyCurve = make.curve(wdata, Ydata, color='red', linestyle='DashLine', linewidth=1,myplatform
                                           marker=None, markersize=5, markerfacecolor="red",
                                           markeredgecolor="black", shade=None, fitted=None,
                                           curvestyle=None, curvetype=None, baseline=None,
@@ -1129,12 +1159,13 @@ class simpleCurveDialog(CurveDialog):
 
 class HiFUSData(QObject):
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, UseOCL=USEOCL):
         """
 
         """
         super(HiFUSData, self).__init__(parent)
 
+        self.alive  = False
         self.emitB  = False
         self.emitM  = False
         self.emitRF = False
@@ -1146,10 +1177,10 @@ class HiFUSData(QObject):
         #TO DO: get these parameters from a configuration file
         bufferCnt=20
         recordCnt=100
-        sampleCnt=4160#5120#6080
+        sampleCnt=4160
         DAQ.SetBufferRecordSampleCount(bufferCnt,recordCnt,sampleCnt)
 
-        trigDelay = 3.0*1.333333E-06
+        trigDelay = 6.0E-03*(2.0/1500.)
         DAQ.SetTriggerDelaySec(trigDelay)
 
         #Store settings
@@ -1180,14 +1211,10 @@ class HiFUSData(QObject):
         self.shBuffers     = numpy.frombuffer(self._shBuffersArr.get_obj(),dtype='H')
         self.shBuffers     = self.shBuffers.reshape(self.buffers.shape,order='C')
 
-        #Demodulated output data
+        #Temporary demodulated/envelope data array
         self.decimation  = DAQ.GetDecimation()
-        self.iqLength    = self.lenBuffers / self.decimation
-        self.iqData      = numpy.empty([self.numBuffers,self.iqLength], dtype=numpy.double, order='C')
-
-        self._shIQDataArr = multiprocessing.Array('d',self.iqData.size)
-        self.shIQData     = numpy.frombuffer(self._shIQDataArr.get_obj(),dtype='d')
-        self.shIQData     = self.shIQData.reshape(self.iqData.shape,order='C')
+        self.envData     = numpy.empty([1,self.lenBuffers/self.decimation], \
+                                        dtype=numpy.double, order='C')
 
         #BMode data
         self.BLength = self.recordLength / self.decimation
@@ -1224,6 +1251,7 @@ class HiFUSData(QObject):
         self._shTimeGainArr = multiprocessing.Array('d',self.timeGain.size)
         self.shTimeGain     = numpy.frombuffer(self._shTimeGainArr.get_obj(),dtype='d')
         self.shTimeGain     = self.shTimeGain.reshape(self.timeGain.shape,order='C')
+        self.shTimeGain[:] = self.timeGain[:]
 
         #M Mode
         self.MRecordLength = 256
@@ -1256,13 +1284,12 @@ class HiFUSData(QObject):
             self.childProcess = multiprocessing.Process(target=CollectProcess, \
                                                         args=[self.childSocket, \
                                                               self._shBuffersArr, self.buffers.shape, \
-                                                              self._shIQDataArr,  self.iqData.shape, \
                                                               self._shTimeGainArr,self.timeGain.shape, \
                                                               self._shBDataArr,   self.BData.shape, \
                                                               self._shBVideoArr,  self.BVideo.shape, \
                                                               self._shMDataArr,   self.MData.shape, \
                                                               self._shRFDataArr,  self.RFData.shape,
-                                                              bufferCnt, recordCnt, sampleCnt])
+                                                              bufferCnt, recordCnt, sampleCnt, trigDelay])
 
 
             self.childProcess.daemon=True
@@ -1271,6 +1298,69 @@ class HiFUSData(QObject):
             #this only happens once when the GUI is loaded
             procResult = self.parentSocket.recv()
         #end MULTIPROCESS == True
+
+        self.useCL = False
+        if UseOCL: #Checks argument, if sucess, then self.UseCL = True
+            self._initCL()
+        pass
+
+    def _initCL(self):
+        try:
+            clv = cl.VERSION_TEXT
+            if not clv =="2013.1":
+                raise Exception('Update your PyOpenCL version to 2013.1!' )
+        except:
+            raise Exception('Please install PyOpenCL or set UseOpenCL=False !' )
+        del clv
+        # create an OpenCL context
+        myplatform = cl.get_platforms()
+        mygpudevices = myplatform[0].get_devices(device_type=cl.device_type.GPU)
+        self.clCtx = cl.Context(devices = mygpudevices)
+        self.clQueue = cl.CommandQueue(self.clCtx)
+        self.clLoadProgram("IQDemod.cl")
+        self.useCL = True
+        
+        mf = cl.mem_flags
+        #initialize client side (CPU) arrays
+        #create OpenCL buffers
+        
+        self.data_buf = cl.Buffer(self.clCtx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=self.buffers)
+        self.dataOut_buf = cl.Buffer(self.clCtx, mf.WRITE_ONLY, self.envData.nbytes)
+        self.gain_buf = cl.Buffer(self.clCtx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=numpy.array(self.timeGain, dtype=numpy.double))
+        # Define buffer: [BufferCount, BufferLength, RecrodsPerBuffer, SamplesPerRecord, NumChannels]
+        DAQParams = numpy.array([self.numBuffers, self.lenBuffers, self.recordCnt, self.recordLength, 1], dtype=numpy.int)
+        self.DAQParams_buf = cl.Buffer(self.clCtx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=DAQParams)
+        # Define OCL Parameters [BufferIndex, NumAverage, UseGain, Decimate]
+        self.OCLParams = numpy.array([self.bufIndex-1, self.BAverage, True, 20], dtype=numpy.int)
+        self.OCLParams_buf = cl.Buffer(self.clCtx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=self.OCLParams)
+        self.clThreads = (self.lenBuffers / self.decimation, 1)
+
+
+
+    def _clIQDemodulateAvg(self):
+        cl.enqueue_write_buffer(self.clQueue, self.data_buf, self.buffers)
+        #TODO Can we just update one part of the buffer (The written to parts, instead of copying entire buffer.)
+        cl.enqueue_write_buffer(self.clQueue, self.gain_buf, self.timeGain)
+        self.OCLParams[0] = (self.bufIndex-1)
+#        print time.time(), self.OCLParams[0]
+        self.OCLParams[1] = self.BAverage
+        cl.enqueue_write_buffer(self.clQueue, self.OCLParams_buf, self.OCLParams).wait()
+
+        Event = self.program.iqDemodAvg(self.clQueue, self.clThreads, None, self.data_buf, self.dataOut_buf, self.gain_buf, self.OCLParams_buf, self.DAQParams_buf)
+        Event.wait()
+        IQData = numpy.empty(self.envData.size, self.envData.dtype)
+        cl.enqueue_copy(self.clQueue, IQData, self.dataOut_buf)
+
+        self.envData = numpy.reshape(IQData, self.envData.shape)
+        #print self.envData.shape, self.envData
+        #time.sleep(0.1)
+
+    def clLoadProgram(self, filename):
+        #read in the OpenCL source file as a string
+        f = open(filename, 'r')
+        fstr = "".join(f.readlines())
+        #create the program
+        self.program = cl.Program(self.clCtx, fstr).build()
 
     def setBMode(self):
         self.emitB  = True
@@ -1321,6 +1411,12 @@ class HiFUSData(QObject):
             #Tell child OK to resume with new value
             self.parentSocket.send(str(n))
 
+        if self.alive != True:
+            DAQ.IQDemodulateAvg(self.buffers, self.envData, self.bufIndex-1, \
+                                average=self.BAverage, gain=self.timeGain)
+            dataToBMode(self.envData, self.BData, self.BLength, self.BLines)
+            self.emit(SIGNAL('newBData'), self.BData)
+
     def setTimeGain(self, timeGain):
         self.timeGain[:] = timeGain[:]
         if MULTIPROCESS == True:
@@ -1333,7 +1429,15 @@ class HiFUSData(QObject):
             #Send message to resume
             self.parentSocket.send(True)
 
+        if self.alive != True:
+            #tempData = numpy.copy(self.iqData[0,:])
+            self.process()
+            self.emit(SIGNAL('newBData'), self.BData)
+
     def getCurrentBuffer(self):
+        #TODO: this method needs updating / is redundant
+        #As full data set is shared when live scanning
+        #is stopped.
         if MULTIPROCESS == True:
             #if multi processing we need to request buffer data
             self.parentSocket.send('shareBuffer')
@@ -1341,7 +1445,6 @@ class HiFUSData(QObject):
             while(self.parentSocket.poll() == False):
                 QApplication.processEvents()
             curIndex = self.parentSocket.recv()
-            print curIndex
             #OK to copy shared array back to local array
             self.buffers[:] = self.shBuffers[:]
             #Tell child OK to resume
@@ -1354,9 +1457,9 @@ class HiFUSData(QObject):
 
     def collect(self):
         if MULTIPROCESS == True:
-            self.collectMP()
+            self._collectMP()
         else:
-            self.collectSP()
+            self._collectSP()
 
     def startBVideo(self):
         self.BVideo = numpy.roll(self.BVideo[:], -int(self.BVideoIndex), axis=0)
@@ -1374,7 +1477,15 @@ class HiFUSData(QObject):
         self.BVideoTimer.stop()
         self.BVideoIndex = 0
 
-    def collectSP(self):
+    def process(self):
+        if self.useCL:
+            self._clIQDemodulateAvg()
+        else:
+            DAQ.IQDemodulateAvg(self.buffers, self.envData, self.bufIndex-1, average=self.BAverage, gain=self.timeGain)
+        dataToBMode(self.envData, self.BData, self.BLength, self.BLines)
+
+
+    def _collectSP(self):
 
         #Check to verify the buffers were properly configured
         if self.bufferCheck != True:
@@ -1399,13 +1510,12 @@ class HiFUSData(QObject):
         bufIndex  = self.bufIndex
         bufPerAcq = self.bufPerAcq
 
-        #Temporary data members hold averaged values
-        tempData = numpy.copy(self.iqData[0,:])
+        #Temporary data to hold demodulated and averaged values
+        #tempData = numpy.copy(self.iqData[0,:])
 
         self.alive = True
         while(self.alive):
-
-            acquireResult = acquireData(self.boardHandle, self.buffers, self.iqData, bufIndex, bufPerAcq)
+            acquireResult = acquireData(self.boardHandle, self.buffers, bufIndex, bufPerAcq)
             if acquireResult != True:
                 print 'Acquire fail'
                 self.alive = False
@@ -1417,22 +1527,21 @@ class HiFUSData(QObject):
 
             #Emit signal to replot in main GUI, provide data as argument
             if self.emitB == True:
-                DAQ.IQDemodulateAvg(self.buffers, tempData, bufIndex-1, average=self.BAverage, gain=self.timeGain)
-                dataToBMode(tempData, self.BData, self.BLength, self.BLines)
+                self.process()
                 self.BVideo[self.BVideoIndex,:,:] = self.BData[:,:]
                 self.BVideoIndex += 1
                 self.BVideoIndex = self.BVideoIndex % self.BVideoLength
                 self.emit(SIGNAL('newBData'), self.BData)
 
             if self.emitM == True:
-                dataToBMode(self.iqData[bufIndex-1,:], self.BData, self.BLength, self.BLines)
+                self.process()
                 self.MData = numpy.roll(self.MData, 1)
                 self.MData[:,0] = self.BData[:,self.BLines/2-1]
                 dataPackage = self.BData, self.MData
                 self.emit(SIGNAL('newMData'), dataPackage)
 
             if self.emitRF == True:
-                self.RFData[1,:] = self.buffers[bufIndex-1, self.RFDataStart:self.RFDataStop]*1.22072175174e-02 - 400
+                self.RFData[1,:] = self.buffers[bufIndex-1, self.RFDataStart:self.RFDataStop]*1.2210012210012e-02 - 398.73
                 self.emit(SIGNAL('newRFData'), self.RFData)
 
             QApplication.processEvents()
@@ -1442,7 +1551,7 @@ class HiFUSData(QObject):
             DAQ.StopAcquisition(self.boardHandle)
             return
 
-    def collectMP(self):
+    def _collectMP(self):
         """ Run data collection using a child process """
 
         #Check that the child process is running
@@ -1511,16 +1620,15 @@ class HiFUSData(QObject):
             self.parentSocket.send('idle')
             while(self.parentSocket.poll() == False):
                 QApplication.processEvents()
-            self.parentSocket.recv()
+            self.bufIndex = self.parentSocket.recv()
             self.emit(SIGNAL('stopped'))
             #Update all local arrays from shared arrays
             self.buffers[:] = self.shBuffers[:]
-            self.iqData[:] = self.shIQData[:]
             self.BData[:] = self.shBData[:]
             self.BVideo[:] = self.shBVideo[:]
             #Need to know the BVideoIndex
             self.parentSocket.send('BVideo')
-            self.BVideoIndex = self.parentSocket.recv()
+            self.BVideoIndex = int(self.parentSocket.recv())
             self.parentSocket.send(True)
             self.MData[:] = self.shMData[:]
             self.RFData[:] = self.shRFData[:]
@@ -1551,13 +1659,12 @@ class HiFUSData(QObject):
 
 def CollectProcess(childSocket, \
                          _shBuffersArr, buffersShape, \
-                         _shIQDataArr,  iqDataShape, \
                          _shGainArr,    gainShape, \
                          _shBDataArr,   BDataShape, \
                          _shBVideoArr,  BVideoShape, \
                          _shMDataArr,   MDataShape, \
                          _shRFDataArr,  RFDataShape, \
-                         bufferCnt, recordCnt, sampleCnt):
+                         bufferCnt, recordCnt, sampleCnt, trigDelay):
     """
     Unbound function to be run as a child process handling data acquisiton
     Function is set up as a pseudo event loop that polls for instructions
@@ -1566,9 +1673,6 @@ def CollectProcess(childSocket, \
     #Give the shared arrays local numpy array references
     buffers = numpy.frombuffer(_shBuffersArr.get_obj(),dtype='H')
     buffers = buffers.reshape(buffersShape,order='C')
-
-    iqData = numpy.frombuffer(_shIQDataArr.get_obj(),dtype='d')
-    iqData = iqData.reshape(iqDataShape,order='C')
 
     gain = numpy.frombuffer(_shGainArr.get_obj(),dtype='d')
     gain = gain.reshape(gainShape,order='C')
@@ -1594,10 +1698,11 @@ def CollectProcess(childSocket, \
     #Configure the record size
     DAQ.SetBufferRecordSampleCount(bufferCnt,recordCnt,sampleCnt)
     boardHandle = DAQ.GetBoardHandle(1,1)
+    DAQ.SetTriggerDelaySec(trigDelay)
     acquireData = DAQ.AcquireBuffers
 
 
-    #A few constants from the input arrays
+    #A few constants and derivatives from the input arrays
     BLength, BLines = BData.shape
     RFStart = (recordCnt/2)*sampleCnt - 1
     RFStop  = RFStart + sampleCnt
@@ -1606,7 +1711,7 @@ def CollectProcess(childSocket, \
     bufPerAcq = 1
 
     BAverage = 1
-    tempData = numpy.copy(iqData[0,:])
+    envData = numpy.empty([1,BData.size], dtype=numpy.double, order='C')
 
     BVideoLength = BVideoShape[0]
     BVideoIndex = 0
@@ -1679,15 +1784,15 @@ def CollectProcess(childSocket, \
 
 
         #Acquire new data from the DAQ
-        acquireResult = acquireData(boardHandle, buffers, iqData, bufIndex, bufPerAcq)
+        acquireResult = acquireData(boardHandle, buffers, bufIndex, bufPerAcq)
         if acquireResult != True:
             childSocket.send('Acquire fail')
             self.alive = False
             return
 
         #if BAverage > 1:
-        DAQ.IQDemodulateAvg(buffers, tempData, bufIndex, BAverage, gain)
-        dataToBMode(tempData, BData, BLength, BLines)
+        DAQ.IQDemodulateAvg(buffers, envData, bufIndex, BAverage, gain)
+        dataToBMode(envData, BData, BLength, BLines)
 
         BVideo[BVideoIndex,:,:] = BData[:,:]
         BVideoIndex += 1
@@ -1695,61 +1800,65 @@ def CollectProcess(childSocket, \
 
         MData[:] = numpy.roll(MData, 1)
         MData[:,0] = BData[:,BLines/2-1]
-        RFData[1,:] = buffers[bufIndex, RFStart:RFStop]*1.22072175174e-02 - 400
+
+        RFData[1,:] = buffers[bufIndex, RFStart:RFStop]*1.2210012210012e-02 - 398.7
 
         bufIndex += bufPerAcq
         bufIndex  = bufIndex % bufferCnt
 
-        #Check if the parent wants new data, every other time
-        if childSocket.poll() == True:
-            cmd = childSocket.recv()
-            #First populate the shared array with new data
-            #then send a message to indicate the shared array is updated
+        #Check if the parent wants new data
+        #Optional frame skip incase display can't keep up with processing
+        if (bufIndex%1 == 0):
+            if childSocket.poll() == True:
+                cmd = childSocket.recv()
+                #First populate the shared array with new data
+                #then send a message to indicate the shared array is updated
 
-            if cmd == 'BData':
-                #Confirm request recieved
-                childSocket.send('BData')
-                #Wait for command to resume
-                childSocket.recv()
+                if cmd == 'BData':
+                    #Confirm request recieved
+                    childSocket.send('BData')
+                    #Wait for command to resume
+                    childSocket.recv()
 
-            #Update number of frames to average during BMode
-            elif cmd == 'BAverage':
-                #Confirm request received
-                childSocket.send('BAverage')
-                #Wait for command to resume
-                BAverage = int(childSocket.recv())
+                #Update number of frames to average during BMode
+                elif cmd == 'BAverage':
+                    #Confirm request received
+                    childSocket.send('BAverage')
+                    #Wait for command to resume
+                    BAverage = int(childSocket.recv())
 
-            #Request to update the time gain curve used
-            elif cmd == 'timeGain':
-                #Confirm request received
-                childSocket.send(True)
-                #Wait for command to resume
-                childSocket.recv()
+                #Request to update the time gain curve used
+                elif cmd == 'timeGain':
+                    #Confirm request received
+                    childSocket.send(True)
+                    #Wait for command to resume
+                    childSocket.recv()
 
-            elif cmd == 'MData':
-                #Confirm request recieved
-                childSocket.send('MData')
-                #Wait for command to resume
-                childSocket.recv()
+                elif cmd == 'MData':
+                    #Confirm request recieved
+                    childSocket.send('MData')
+                    #Wait for command to resume
+                    childSocket.recv()
 
-            elif cmd == 'RFData':
-                #Confirm request recieved
-                childSocket.send('RFData')
-                #Wait for command to resume
-                childSocket.recv()
+                elif cmd == 'RFData':
+                    #Confirm request recieved
+                    childSocket.send('RFData')
+                    #Wait for command to resume
+                    childSocket.recv()
 
-            elif cmd == 'idle':
-                DAQ.StopAcquisition(boardHandle)
-                idle = True
-                childSocket.send('startIdle')
+                elif cmd == 'idle':
+                    DAQ.StopAcquisition(boardHandle)
+                    idle = True
+                    #Send back the bufIndex to the parent so that
+                    #it knows what the the most recent data is
+                    childSocket.send(bufIndex)
 
-            else:
-                #If the recieved code is nonsense end the loop
-                #This kills the process
-                DAQ.StopAcquisition(boardHandle)
-                alive = False
-                childSocket.send(False)
-
+                else:
+                    #If the recieved code is nonsense end the loop
+                    #This kills the process
+                    DAQ.StopAcquisition(boardHandle)
+                    alive = False
+                    childSocket.send(False)
 
 
 
@@ -1961,7 +2070,7 @@ class DummyHardware(object):
 
         return True
 
-    def AcquireBuffers(self, boardHandle, buffers, iqData=None, bufIndex=0, bufPerAcq=1):
+    def AcquireBuffers(self, boardHandle, buffers, bufIndex=0, bufPerAcq=1):
         """
         DummyHardware.AcquireBuffers(...)
 
@@ -1973,9 +2082,6 @@ class DummyHardware(object):
 
                     buffers, ndarray containg all acqusition buffers.
                              Required array shape [bufferCnt, bufferLength]
-
-                    iqData, Optional ndarray that envelope data is written to.
-                            Required array shape [bufferCnt, bufferLength/decimation]
 
                     bufIndex (int), the index of the first buffer to be written
 
@@ -1991,11 +2097,6 @@ class DummyHardware(object):
         tempRF = numpy.random.rand(bufPerAcq,buffers.shape[1])*sigAmp + 0.5*sigRange
 
         buffers[a:b,:] = numpy.array(tempRF, dtype=buffers.dtype)
-
-        if iqData is not None:
-            envAmp = 10
-            tempIQ = numpy.random.rand(bufPerAcq,iqData.shape[1])*envAmp
-            iqData[a:b,:] = numpy.abs(numpy.array(tempIQ, dtype=iqData.dtype))
 
         return True
 
@@ -2094,7 +2195,7 @@ def dataToBMode(data, imageData, imageDepth, imageLines):
 
     srt = 0;
     for datasep in range(imageLines):
-        imageData[:,datasep]=data[srt:srt+imageDepth];
+        imageData[:,datasep]=data[0,srt:srt+imageDepth];
         srt = srt+imageDepth;
     return True
 
@@ -2123,8 +2224,6 @@ def frequencySpectrum(xData,yData,timebase=1.0E+06):
     P = numpy.real(H*numpy.conjugate(H))
 
     return w[1:n], P[1:n]
-
-
 
 class MCUWidget(QWidget):
     def __init__(self, parent=None):
@@ -2171,7 +2270,7 @@ class MCUWidget(QWidget):
         self.scanFreqSpinBox.setDecimals(2)
         self.scanFreqSpinBox.setSingleStep(0.01)
         self.scanFreqSpinBox.setSuffix(" Hz")
-        self.scanFreqSpinBox.setValue(95.86)
+        self.scanFreqSpinBox.setValue(95.75)
         #FPGA timer generation is at 400 MHz on 2**22 counter loop
         #400E+06 / 2** 22 = 95.37
 
@@ -2437,6 +2536,7 @@ try:
 except:
     DAQ = DummyHardware()
 
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     #splash_pix = QPixmap('')
@@ -2447,9 +2547,3 @@ if __name__ == '__main__':
     form.show()
     #splash.finish(form)
     app.exec_()
-
-
-
-
-
-
