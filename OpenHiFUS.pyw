@@ -1404,7 +1404,7 @@ class HiFUSData(QObject):
         self.BVideoTimer.stop()
         self.BVideoIndex = 0
 
-    def process(self):
+    def processBData(self):
         if self.useCL:
             self._clIQDemodulateAvg()
         else:
