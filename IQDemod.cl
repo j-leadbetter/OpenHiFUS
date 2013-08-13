@@ -1,5 +1,5 @@
 // Data processing constants
-#define IQ_DELAY 
+#define IQ_DELAY 5
 #define K_CARD	1.2210012210012e-05
 #define R_CARD  0.3987300000000
 #define NOISE_DB  -60.000000000
@@ -17,7 +17,7 @@ __kernel void iqDemodAvg(__constant unsigned short *buffer, __global double *dat
     double iData, qData, iq2Data, logData;
     
     int bufIndex, numAverage, useGain, decimate;
-    int numBuffers, bufLength;
+    int numBuffers, bufLength, recLength;
     
     
     //Assign arguments to local vars
@@ -57,7 +57,7 @@ __kernel void iqDemodAvg(__constant unsigned short *buffer, __global double *dat
     if (useGain == 1)
     {
         iData *= gain[iIndex % recLength];
-        qData *= gain[qIndex % reclength];
+        qData *= gain[qIndex % recLength];
     }
 
     iq2Data = (iData * iData + qData * qData);

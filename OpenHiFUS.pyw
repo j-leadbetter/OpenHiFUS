@@ -50,7 +50,7 @@ from guiqwt.builder import make
 #see guiqwt.image.RawImageItem  for additional methods on image adjustment
 
 
-FIXEDSIZE = False
+FIXEDSIZE = True
 MULTIPROCESS = True
 USEOCL = False
 
@@ -416,7 +416,7 @@ class BModeWindow(QWidget):
         #plot.set_active_item(self.currentImage)
 
         self.curClock = self.fpsClock()
-        self.frameRate = 1.0 / ( self.curClock-self.preClock)
+        self.frameRate = 2.0 / ( self.curClock-self.preClock)
         self.frameRateLabel.setText('{:.1f}'.format(self.frameRate))
         self.preClock = self.curClock
 
@@ -1181,7 +1181,7 @@ class HiFUSData(QObject):
 
         #Acquisition frame rate
         #This is a nominal value, and should come from a configuration file
-        self.frameRate     = 48.0;
+        self.frameRate     = 95.0;
 
         #Memory buffers
         self.bufIndex = 0
@@ -1442,7 +1442,7 @@ class HiFUSData(QObject):
         self.DAQParams_buf = cl.Buffer(self.clCtx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=DAQParams)
 
         # Define OCL Parameters [BufferIndex, NumAverage, UseGain, Decimate]
-        self.OCLParams = numpy.array([self.bufIndex-1, self.BAverage, True, self.decimate], dtype=numpy.int)
+        self.OCLParams = numpy.array([self.bufIndex-1, self.BAverage, True, self.decimation], dtype=numpy.int)
         self.OCLParams_buf = cl.Buffer(self.clCtx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=self.OCLParams)
         self.clThreads = (self.lenBuffers / self.decimation, 1)
 
@@ -1787,7 +1787,7 @@ def CollectProcess(childSocket, \
 
         #Check if the parent wants new data
         #Optional frame skip incase display can't keep up with processing
-        if (bufIndex%1 == 0):
+        if (bufIndex%2 == 0):
             if childSocket.poll() == True:
                 cmd = childSocket.recv()
                 #First populate the shared array with new data
