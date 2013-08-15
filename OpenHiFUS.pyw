@@ -2072,7 +2072,7 @@ class DummyHardware(object):
 
         sigAmp = 50
         sigRange = 2**16
-        tempRF = numpy.random.rand(bufPerAcq,buffers.shape[1])*sigAmp + 0.5*sigRange
+        tempRF = numpy.random.randint(-sigAmp, sigAmp, (bufPerAcq,buffers.shape[1]) ) + 0.5*sigRange
 
         buffers[a:b,:] = numpy.array(tempRF, dtype=buffers.dtype)
 
