@@ -15,7 +15,9 @@ extremely powerful and valuable tool to the scientific community. However, when
 starting this project it was found that there were few comprehensive examples for 
 using Python to run a real-time data acquisition and display system.  Now, OpenHiFUS 
 demonstrates a simple approach for running multiple Python processes to accommodate 
-uninterrupted data acquisition, and independent processing and display rates.
+uninterrupted data acquisition, and independent processing and display rates. 
+OpenHiFUS supports multithreading and GPU calculations (OpenCL) in order to maximize
+performance.
 
 As distributed, OpenHiFUS will generate random data or load existing data to 
 demonstrate performance and functionality. Additionally, OpenHiFUS can load 
@@ -40,3 +42,6 @@ PyQt4 (http://www.riverbankcomputing.com/software/pyqt/intro)
 PyQwt (http://pyqwt.sourceforge.net/)
 Guiqwt (https://code.google.com/p/guiqwt/)
 OpenCV (http://opencv.willowgarage.com/wiki/) 
+
+Optional packages, will work without it:
+OpenCL (http://mathema.tician.de/software/pyopencl) 
