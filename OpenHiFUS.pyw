@@ -1,7 +1,8 @@
 """
 OpenHiFUS
-Copyright 2012-2013 Jeff Leadbetter
+Copyright 2012-2014 Jeff Leadbetter
 jeff.leadbetter@dal.ca
+jeff.leadbetter@daxsonics.com
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -18,8 +19,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 #Title: OpenHiFUS
-version='1.04'
-#Date: November 27, 2013
+version='1.05'
+#Date: May 13, 2014
 #Python Version 2.7.2
 
 import os
@@ -69,23 +70,29 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("OpenHiFUS "+version)
 
+        #All imaging modes access the same data object
+        #This is owned by the MainScanWindow widget and
+        #referenced by the individual image mode widgets
+        self.dataObject = HiFUSData()
+
         #Set central widget - Main Scan window
-        self.mainWindow = MainScanWindow()
+        self.mainWindow = MainScanWindow(self. dataObject)
         self.setCentralWidget(self.mainWindow)
 
         #Set main toolbar
         mainToolBar = self.addToolBar("Tools")
 
+        ############
         #DockWidgets
+        ############
         dockPalette = QPalette()
         dockPalette.setColor(QPalette.Window, Qt.black)
         dockPalette.setColor(QPalette.WindowText, Qt.white)
 
         #Session Information
-        self.infoWidget = SessionInfoWidget()
+        self.infoWidget = SessionInfoWidget(self.dataObject)
         self.infoWidget.setAutoFillBackground(True)
-        #self.infoWidget.setPalette(dockPalette)
-
+        
         infoDockWidget = QDockWidget('Session Information', self)
         infoDockWidget.setObjectName('infoDockWidget')
         infoDockWidget.setAllowedAreas(Qt.LeftDockWidgetArea)
@@ -95,9 +102,8 @@ class MainWindow(QMainWindow):
         #Image Control Widget
         self.contrastWidget = ContrastWidget()
         self.contrastWidget.setAutoFillBackground(True)
-        #self.contrastWidget.setPalette(dockPalette)
-
-        contrastDockWidget = QDockWidget('Contrast Settings', self)
+        
+        contrastDockWidget = QDockWidget('Image Settings', self)
         contrastDockWidget.setObjectName('contrastDockWidget')
         contrastDockWidget.setAllowedAreas(Qt.LeftDockWidgetArea)
         contrastDockWidget.setWidget(self.contrastWidget)
@@ -138,13 +144,13 @@ class MainWindow(QMainWindow):
 
 
 class MainScanWindow(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, dataObject, parent=None):
         super(MainScanWindow, self).__init__(parent)
 
         #All imaging modes access the same data object
-        #This is owned by the MainScanWindow widget and
+        #This is owned by the MainWindow widget and
         #referenced by the individual image mode widgets
-        self.dataObject = HiFUSData()
+        self.dataObject = dataObject
 
 
         #GUI appearance
@@ -222,7 +228,6 @@ class BModeWindow(QWidget):
         #Set "Run" and "Stop" buttons
         self.runButton  = QPushButton("Scan")
         self.stopButton = QPushButton("Stop")
-        self.saveButton = QPushButton("Export RF Data")
 
         #Label to report framerate
         self.frameRate = 0.0
@@ -293,7 +298,6 @@ class BModeWindow(QWidget):
         runStopStack = QVBoxLayout()
         runStopStack.addWidget(self.runButton)
         runStopStack.addWidget(self.stopButton)
-        runStopStack.addWidget(self.saveButton)
         runStopInterface = QHBoxLayout()
         runStopInterface.addLayout(runStopStack)
         runStopInterface.addStretch()
@@ -349,9 +353,9 @@ class BModeWindow(QWidget):
         self.connect(self.averageComboBox, SIGNAL("currentIndexChanged(int)"), self.setBAverage)
         self.connect(self.flipLRButton, SIGNAL("clicked()"), self.flipLeftRight)
         self.connect(self.gainWidget,  SIGNAL("newTimeGain"), self.setTimeGain)
-        self.connect(self.saveButton,  SIGNAL("clicked()"), self.exportRFData)
         self.connect(self.dataObject,  SIGNAL("newBData"),  self.replot)
         self.connect(self.dataObject,  SIGNAL("faildata"),  self.stopBScan)
+        
 
     def runBScan(self):
         """ Method calls program loop to acquire B mode images """
@@ -447,19 +451,6 @@ class BModeWindow(QWidget):
         self.connect(self.contrastWidget.BNoiseFloorSlider, SIGNAL("valueChanged(int)"), self.setBMinPlotRange)
         self.connect(self.contrastWidget.BSignalRangeSlider, SIGNAL("valueChanged(int)"), self.setBMaxPlotRange)
         
-
-    def exportRFData(self):
-
-        if MULTIPROCESS == True and self.dataObject.alive == True:
-             QMessageBox.warning(self, "User Action Required", "Scanning must be stopped before buffer export.")
-
-        else:
-            #Now save the current data
-            filename = QFileDialog.getSaveFileName(self, 'Save File')
-            if filename != "":
-                outBuffer = self.dataObject.getCurrentBuffer()
-                numpy.save(str(filename), outBuffer)
-
     def setAppearance(self):
         """
         The GuiQWT objects don't repaint when their parents palette
@@ -645,9 +636,11 @@ class ReplayWidget(QWidget):
 
 class SessionInfoWidget(QWidget):
 
-    def __init__(self, parent=None):
+    def __init__(self, dataObject, parent=None):
 
         super(SessionInfoWidget, self).__init__(parent)
+
+        self.dataObject = dataObject
 
         self.sessionIDEdit = QLineEdit()
         self.sessionIDEdit.setText(' ')
@@ -657,10 +650,17 @@ class SessionInfoWidget(QWidget):
 
         self.date = QDate()
         self.sessionDateEdit = QLineEdit()        
-        self.sessionDateEdit.setText(self.date.currentDate().toString('dd/MM/yyyy'))
+        self.sessionDateEdit.setText(self.date.currentDate().toString('yyyy/MM/dd'))
         self.time = QTime()
         self.sessionTimeEdit = QLineEdit()
         self.sessionTimeEdit.setText(self.time.currentTime().toString('hh:mm'))
+
+        self.saveButton = QPushButton("Export RF Data")
+        #self.loadButton = QPushButton("Import RF Data")
+
+        self.updateTimer = QTimer()
+        self.updateTimer.setInterval(1000)
+        self.updateTimer.start()
 
         VLayout = QVBoxLayout()
         HLayout = QHBoxLayout()
@@ -675,9 +675,42 @@ class SessionInfoWidget(QWidget):
         HLayout.addWidget(QLabel('Time: '))
         HLayout.addWidget(self.sessionTimeEdit)
         VLayout.addLayout(HLayout)
+        VLayout.addWidget(self.saveButton)
+        #VLayout.addWidget(self.loadButton)
         VLayout.addStretch()
 
         self.setLayout(VLayout)
+        
+        self.connect(self.saveButton,  SIGNAL("clicked()"), self.exportRFData)
+        self.connect(self.updateTimer, SIGNAL("timeout()"), self.updateTimeEdit)
+
+
+    def exportRFData(self):
+
+        if MULTIPROCESS == True and self.dataObject.alive == True:
+             QMessageBox.warning(self, "User Action Required", "Scanning must be stopped before buffer export.")
+             return False
+
+        date = str(self.sessionDateEdit.text())
+        date = date.replace('/','_')
+        time = str(self.sessionTimeEdit.text())
+        time = time.replace(':','_')
+
+        defaultName = date + '_' +\
+                      time + '_' +\
+                      str(self.sessionIDEdit.text()) + '_' +\
+                      '.npy'
+        
+        filename = QFileDialog.getSaveFileName(self, 'Save File', defaultName)
+        if filename != "":
+
+            #JRL we should use the h5py library to export numpy arrays with metadata
+            numpy.save(str(filename), self.dataObject.buffers)
+
+            
+    def updateTimeEdit(self):
+        self.sessionTimeEdit.setText(self.time.currentTime().toString('hh:mm'))
+
 
 class ContrastWidget(QWidget):
     def __init__(self, parent=None):
@@ -2311,6 +2344,64 @@ def dataToBMode(data, imageData, imageDepth, imageLines):
     return True
 
 
+class SectorScanMap(object):
+
+    def __init__(self, parent=None):
+        
+        #Source array (polar)       
+        nphi = 64
+        phimin = -31
+        phimax = 32
+        phi = numpy.linspace(phimin,phimax,nphi)
+        nr = 208
+        rmin = 3.00E-03
+        rmax = 9.24E-03
+        r = numpy.linspace(rmin,rmax,nr)
+        
+        #Destination array (cartesian)
+        nx = 200
+        xmin = -5.0E-03
+        xmax =  5.0E-03
+        x = numpy.linspace(xmin,xmax,nx)
+        nz = 225
+        zmin = 2.5E-03
+        zmax = 9.25E-03
+        z = numpy.linspace(zmin,zmax,nz)
+        
+        dst = numpy.zeros([nz, nx])
+        self.dst = dst
+        rdst = numpy.zeros_like(dst)
+        phidst = numpy.zeros_like(dst)
+        
+        
+        #Now specify the location of each pixel in the 
+        #destination array (x,z cartesian) in the 
+        #coordinate system of the source array(r,phi polar)
+        for i in range(nz):
+            for j in range(nx):
+                rdst[i,j] = (z[i]**2 + x[j]**2)**0.5
+                phidst[i,j] = numpy.arctan(x[j]/z[i])*180/pi
+        
+        #Normalize the destination -> source mapping         
+        map1 = numpy.zeros([nz, nx],dtype=numpy.float32)
+        map1[:,:] = (phidst-phimin)/(phimax-phimin) * nphi
+        self.map1 = map1
+        
+        map2 = numpy.zeros([nz, nx],dtype=numpy.float32)
+        map2[:,:] = (rdst-rmin)/(rmax-rmin) * nr
+        self.map2 = map2
+    
+    def render(self, src):
+        dst = cv2.remap(src, self.map1, self.map2, \
+                        interpolation=cv2.INTER_CUBIC, \
+                        borderMode=cv2.BORDER_CONSTANT, \
+                        borderValue = 0.)
+                        
+        dst[dst<0] = 0.
+        
+        return dst
+
+
 def frequencySpectrum(xData,yData,timebase=1.0E+06):
     """
     Generate the frequency vector for the fft
@@ -2640,6 +2731,7 @@ class MCU(serial.Serial):
     def sendEcho(self, echoCode):
         self._send(self.opCode['ECHO'], echoCode, self.fmtCode['ushort'])
         return self.readline()
+    
 
 try:
     import PyDaxAlazar as DAQ
